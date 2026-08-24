@@ -2,6 +2,15 @@
 
 Notes gathered 2026-08-24. Verify each suite's current terms before first run — access policies change.
 
+## GAIA specifics (gated dataset — read before running)
+
+GAIA (gaia-benchmark/GAIA on HuggingFace) is a GATED dataset: access requires accepting conditions, and the gate explicitly forbids resharing the validation or test set outside gated/private repos or in crawlable form. Consequences for this repo:
+
+1. NEVER commit GAIA task content, answers, or derived task files to meept-bench. Adapters reference the HF dataset by revision hash; each runner fetches from HF under the user's own accepted-gate token.
+2. Artifacts ARE publishable: per-task results (task id, verdict, transcript summary, cost), aggregate scorecards, and submissions to the official leaderboard (validation set) follow what other agents already publish (atomic-agent ships GAIA artifacts as release assets). Publish results + methodology; never the tasks.
+3. The official leaderboard path: gaia-benchmark/leaderboard HF Space takes submissions against the test set with private answers. Validation-set scores are self-reportable; test-set scores require submission. Decide per release which we claim.
+4. Record the HF revision hash of the dataset snapshot in every result row for reproducibility.
+
 | Suite | Access | License/terms | Notes for meept-bench |
 |-------|--------|---------------|----------------------|
 | GAIA (HuggingFace gaia-benchmark/GAIA) | HF dataset, validation split public; test split requires leaderboard submission | CC BY-NC-SA-ish for data, per HF card — CHECK CARD AT RUN TIME | Validation subset only for published numbers. Text-only L1/L2 first. Images/PDFs in some tasks — filter to text-only for phase 2 or add doc-reader MCP servers. |

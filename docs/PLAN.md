@@ -28,7 +28,7 @@ Created 2026-08-24 from the agent-parity audit (meept repo: `docs/research/2026-
 | Order | Suite | Why this order | Est. effort |
 |-------|-------|----------------|-------------|
 | 1 | LongMemEval-S (small split) first | no tool use, pure memory — isolates meept's biggest claimed differentiator fastest | 3–5 days |
-| 2 | GAIA validation text-only L1/L2 (~40 tasks) | public, citable, competitor-comparable; needs web search only | 1 week |
+| 2 | GAIA validation text-only L1/L2 subset | gated dataset — see BENCHMARKS.md rules; artifacts publishable, dataset is not | 1 week |
 | 3 | Terminal-Bench subset | exercises runtime backends + validation gates | 1–2 weeks |
 | 4 | τ-bench retail | policy compliance maps onto security engine/approvals | 2 weeks |
 | 5 | SWE-bench Lite (50-task subset) | heaviest; needs SWE harness integration (Docker images) | 2–3 weeks |
