@@ -60,7 +60,7 @@ func (m *Manager) Create(repoPath, name string) (*Worktree, error) {
 		return nil, err
 	}
 	branch := "bench/" + sanitize(name)
-	if _, err := run(abs, "worktree", "add", "--detach", "-b", branch, dir, "HEAD"); err != nil {
+	if _, err := run(abs, "worktree", "add", "-b", branch, dir, "HEAD"); err != nil {
 		return nil, err
 	}
 	return &Worktree{Root: m.Root, RepoPath: abs, Path: dir, Branch: branch}, nil
