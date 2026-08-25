@@ -1,0 +1,34 @@
+{
+  "suite": "smoke",
+  "description": "End-to-end smoke suite. Verifies the harness loop: prompt → daemon chat → worktree checker → scorecard. No benchmark content, safe to commit and publish.",
+  "model": "",
+  "tasks": [
+    {
+      "id": "write-answer-file",
+      "prompt": "Create a file named answer.txt in the repository root containing exactly the number 42 on a single line.",
+      "timeout_seconds": 120,
+      "seeds": [1],
+      "checkers": [
+        {"type": "file_contains", "files": ["answer.txt"], "pattern": "^42$"},
+        {"type": "exit_zero", "command": ["test", "-s", "answer.txt"]}
+      ]
+    },
+    {
+      "id": "repo-inventory",
+      "prompt": "List the files in the current directory and write the list, one file per line, to a new file named inventory.txt.",
+      "timeout_seconds": 180,
+      "seeds": [1],
+      "checkers": [
+        {"type": "file_contains", "files": ["inventory.txt"], "pattern": "README"}
+      ]
+    },
+    {
+      "id": "open-ended-judge",
+      "prompt": "In one paragraph, explain what this repository is for based on its README.",
+      "timeout_seconds": 180,
+      "checkers": [
+        {"type": "llm_judge", "rubric": "Does the answer accurately summarize the repository's purpose as described in the README? Score 0-1.", "min_score": 0.7}
+      ]
+    }
+  ]
+}

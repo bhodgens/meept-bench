@@ -2,9 +2,37 @@
 
 Outcome-level benchmark harness for [meept](https://github.com/bhodgens/meept), the personal AI agent daemon. This repo exists because meept ships strong internal QA (custom static analyzers, generated connectivity graphs, race tests) but zero published evaluation evidence. Competitors publish GAIA artifacts, memory evals, and context-policy measurements; meept publishes nothing measurable. This fixes that.
 
-## Status: scaffold
+## Status: Phase 1 harness implemented
 
-Phase 1 harness work has not started. See [docs/PLAN.md](docs/PLAN.md).
+The runner drives a live meept daemon end to end: suite manifest → per-task git worktree → JSON-RPC chat over the unix socket → bus event trace → checkers → JSONL results → markdown/JSON scorecard. See [docs/PLAN.md](docs/PLAN.md) for phase status.
+
+## Quick start
+
+```
+go build ./...                      # stdlib-only, no external deps
+./meept-bench doctor                # verify the daemon is reachable
+./meept-bench run --suite suites/smoke.json --attempts 1
+./meept-bench scorecard results/smoke/results.jsonl
+```
+
+Requirements:
+
+- A running `meept-daemon` (JSON-RPC on its default socket; override with `MEEPT_BENCH_SOCKET`).
+- The repo under test is a git repository — every attempt gets a fresh `bench/<task>` worktree under `--scratch` (default `/tmp/meept-bench`).
+- For `llm_judge` checkers, an external judge command via `--judge-cmd "prog args..."`. It reads `<rubric>\n---\n<answer>` on stdin and prints `<score 0..1> <rationale>`. Judges run blind to model identity.
+
+### Run flags
+
+| Flag | Meaning |
+|------|---------|
+| `--suite FILE` | task manifest (required) |
+| `--task SUBSTR` | run only tasks whose ID contains SUBSTR |
+| `--attempts N` | attempts per task |
+| `--model ALIAS` | override model (exercises meept model reassignment) |
+| `--keep-failed` | preserve failed-attempt worktrees for postmortems |
+| `--auto-approved` | disclose approval gates ran with no human present |
+
+Outputs land in `results/<suite>/`: `results.jsonl` (one row per attempt: verdict, seed, cost, wall time, HF revision), `transcripts/*.json` (prompt, final reply, distilled tool trace from `tool.execution.progress` / `chat_message` bus events), and `scorecard.{md,json}` (pass rate, mean cost/task, failure taxonomy by meept error kind, per-seed variance). Every scorecard is labeled **self-run** per docs/BENCHMARKS.md rule 3.
 
 ## What runs here
 
