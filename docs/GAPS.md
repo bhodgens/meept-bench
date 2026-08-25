@@ -22,3 +22,23 @@ Pre-registered expectations from the 2026-08-24 parity audit. Written BEFORE fir
 ## Non-goals
 
 Do NOT close gap 6 by weakening security defaults globally; auto-approval is a suite-scoped config, disclosed per result row.
+
+## Live smoke-run findings (2026-08-24, meept-bench v0.1)
+
+Verified against a live daemon during phase-1 bring-up:
+
+9. **Intent classifier hijacks task prompts** — "Create a file named
+   answer.txt…" dispatches as `intent_type=skill confidence=0.747` and the
+   chat agent answers with platform introspection (agent/tool listings)
+   instead of performing the task. The word "create" appears to collide
+   with skill keywords in the classifier. Blocks all Terminal-Bench-style
+   suites until fixed. Reproduce: `meept-bench run --suite suites/smoke.json`.
+10. **Topic detector substring match misroutes threads** — "Cre*ate*"
+    matches the food keyword "*eat*", tagging the thread
+    `-thread-food-…`. Cosmetic today, but thread routing keys off it.
+11. **Chat RPC has a hard server-side 120s proxy timeout** — long agent
+    runs outlive the RPC reply path. The harness now falls back to the
+    `chat_message` bus topic, but any RPC-only client hits the same wall.
+12. **Session identity is split** — `project.set` needs the primary ID
+    (`session-…`) while chat/session lookups key on the conversation ID
+    (`conv-…`). Documented here so future adapters bind both correctly.
