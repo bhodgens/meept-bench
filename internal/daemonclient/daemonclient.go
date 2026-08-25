@@ -237,17 +237,116 @@ func (c *Client) Status(ctx context.Context) (map[string]any, error) {
 
 // Chat sends a message and waits for the agent's reply via the bus proxy
 // ("chat" RPC method → chat.request/chat.response topics).
+//
+// meept's RPC proxy enforces a HARD 120s server-side timeout on the chat
+// round-trip regardless of client context. Long agent runs therefore return
+// a proxy-timeout error while the work continues on the daemon. To stay
+// correct for benchmark tasks that exceed 120s, we subscribe to the
+// `chat_message` bus topic BEFORE sending; if the RPC times out we keep
+// waiting there for the assistant reply carrying our conversation ID.
 func (c *Client) Chat(ctx context.Context, message, sessionID string) (*ChatResponse, error) {
-	params := map[string]any{"message": message, "source_client": "meept-bench"}
-	if sessionID != "" {
-		params["session_id"] = sessionID
-		params["conversation_id"] = sessionID
+	conversation := sessionID
+	if conversation == "" {
+		conversation = fmt.Sprintf("bench-%d", time.Now().UnixNano())
+	}
+
+	// Watcher drains chat_message events into a channel keyed by conversation.
+	type replyMsg struct {
+		Role           string    `json:"role"`
+		Content        string    `json:"content"`
+		SessionID      string    `json:"session_id"`
+		ConversationID string    `json:"conversation_id"`
+		Error          string    `json:"error"`
+	}
+	replies := make(chan replyMsg, 16)
+	subCtx, cancelSub := context.WithTimeout(context.Background(), 10*time.Second)
+	sub, err := c.Subscribe(subCtx, []string{"chat_message"})
+	cancelSub()
+	if err == nil {
+		go func() {
+			defer close(replies)
+			for {
+				evts, err := sub.Poll(context.Background())
+				if err != nil {
+					return
+				}
+				for _, e := range evts {
+					var m replyMsg
+					if json.Unmarshal(e.Payload, &m) == nil {
+						select {
+						case replies <- m:
+						default:
+						}
+					}
+				}
+			}
+		}()
+		defer sub.Unsubscribe(context.Background())
+	}
+	// err from Subscribe is non-fatal: fall back to plain RPC below.
+
+	params := map[string]any{
+		"message":         message,
+		"source_client":   "meept-bench",
+		"session_id":      sessionID,
+		"conversation_id": conversation,
 	}
 	var resp ChatResponse
-	if err := c.Call(ctx, "chat", params, &resp); err != nil {
-		return nil, err
+	rpcErr := c.Call(ctx, "chat", params, &resp)
+	if rpcErr == nil && resp.Error == "" {
+		return &resp, nil
 	}
-	return &resp, nil
+	if rpcErr == nil && resp.Error != "" && !isProxyTimeout(resp.Error) {
+		return &resp, nil // real agent-reported error
+	}
+	// Proxy timeout (or agent error mentioning timeout): wait on bus events.
+	if err != nil && sub == nil {
+		if isProxyTimeout(fmt.Sprint(rpcErr)) || (rpcErr != nil && strings.Contains(rpcErr.Error(), "timeout")) {
+			return nil, fmt.Errorf("chat RPC timed out after %s and no event fallback available (subscribe failed)", proxyWindow)
+		}
+		return nil, rpcErr
+	}
+
+	deadline := time.NewTimer(proxyWindow + graceWindow)
+	defer deadline.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-deadline.C:
+			if rpcErr != nil {
+				return nil, fmt.Errorf("chat: %w (and no reply within event-fallback window)", rpcErr)
+			}
+			return &resp, nil
+		case m, ok := <-replies:
+			if !ok {
+				continue
+			}
+			if m.Role == "assistant" && (m.ConversationID == conversation || m.SessionID == conversation) {
+				out := &ChatResponse{
+					Reply:          m.Content,
+					ConversationID: m.ConversationID,
+					SessionID:      m.SessionID,
+					Error:          m.Error,
+				}
+				if m.Error != "" {
+					out.Reply = ""
+				}
+				return out, nil
+			}
+		}
+	}
+}
+
+const (
+	proxyWindow = 125 * time.Second // just above meept's 120s proxy cap
+	graceWindow = 10 * time.Minute  // extra time for the agent to finish on the bus
+)
+
+// isProxyTimeout recognizes meept's chat.response proxy timeout message.
+func isProxyTimeout(s string) bool {
+	return strings.Contains(s, "timeout waiting for response") ||
+		strings.Contains(s, "context deadline exceeded")
 }
 
 // ChatResponse mirrors meept's agent.ChatResponse.
@@ -350,22 +449,29 @@ func (c *Client) ProjectRegister(ctx context.Context, id, name, localPath string
 	}, &out)
 }
 
-// SessionCreate opens a new chat session and returns its ID.
-func (c *Client) SessionCreate(ctx context.Context) (string, error) {
-	var out struct {
-		SessionID string `json:"session_id"`
-		Result    string `json:"result"`
-		ID        string `json:"id"`
-	}
+// SessionIDs holds both identifiers meept uses: the primary session ID
+// ("session-…", needed for project.set) and the conversation ID ("conv-…",
+// which the agent loop uses for session-store lookups).
+type SessionIDs struct {
+	SessionID      string
+	ConversationID string
+}
+
+// SessionCreate opens a new chat session and returns both IDs.
+func (c *Client) SessionCreate(ctx context.Context) (*SessionIDs, error) {
+	var out map[string]any
 	if err := c.Call(ctx, "session.create", map[string]any{}, &out); err != nil {
-		return "", err
+		return nil, err
 	}
-	switch {
-	case out.SessionID != "":
-		return out.SessionID, nil
-	case out.ID != "":
-		return out.ID, nil
-	default:
-		return "", fmt.Errorf("session.create returned no session id")
+	ids := &SessionIDs{}
+	if v, ok := out["id"].(string); ok {
+		ids.SessionID = v
 	}
+	if v, ok := out["conversation_id"].(string); ok {
+		ids.ConversationID = v
+	}
+	if ids.SessionID == "" && ids.ConversationID == "" {
+		return nil, fmt.Errorf("session.create returned no ids")
+	}
+	return ids, nil
 }

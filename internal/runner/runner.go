@@ -144,9 +144,25 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	}
 	cancelPing()
 
-	// Bind the worktree as a project so the daemon's tools operate inside it.
+	// Register the worktree as a project AND bind it to a real daemon session
+	// so the agent loop's tools resolve their working dir to the worktree
+	// (meept resolves cwd from the session store; project.set fails with
+	// "session not found" for IDs the daemon has never seen).
 	regCtx, cancelReg := context.WithTimeout(ctx, 15*time.Second)
 	_ = client.ProjectRegister(regCtx, name, name, wt.Path)
+	var sessionID, conversationID string
+	if ids, err := client.SessionCreate(regCtx); err == nil {
+		sessionID = ids.SessionID
+		conversationID = ids.ConversationID
+		if err := client.Call(regCtx, "project.set", map[string]any{
+			"session_id": sessionID,
+			"path":       wt.Path,
+		}, nil); err != nil {
+			r.opt.Logf("project.set failed: %v (agent may run in the wrong dir)", err)
+		}
+	} else {
+		r.opt.Logf("warning: session.create returned no ids; agent will have no project binding")
+	}
 	cancelReg()
 
 	// Subscribe to tool progress + chat_message events for the trace.
@@ -171,7 +187,9 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 
 	chatCtx, cancelChat := context.WithTimeout(ctx, t.Timeout())
 	defer cancelChat()
-	resp, chatErr := client.Chat(chatCtx, t.Prompt, "")
+	// The daemon resolves the session (and its project binding) by
+	// conversation ID, so chat with conv-…, not session-….
+	resp, chatErr := client.Chat(chatCtx, t.Prompt, conversationID)
 	close(done)
 	_ = sub.Unsubscribe(context.Background())
 

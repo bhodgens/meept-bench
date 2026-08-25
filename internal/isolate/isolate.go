@@ -60,6 +60,10 @@ func (m *Manager) Create(repoPath, name string) (*Worktree, error) {
 		return nil, err
 	}
 	branch := "bench/" + sanitize(name)
+	// A prior kept-failed attempt may have left this branch behind; prune
+	// dead worktree registrations first or git refuses -D on it.
+	_, _ = run(abs, "worktree", "prune")
+	_, _ = run(abs, "branch", "-D", branch)
 	if _, err := run(abs, "worktree", "add", "-b", branch, dir, "HEAD"); err != nil {
 		return nil, err
 	}
