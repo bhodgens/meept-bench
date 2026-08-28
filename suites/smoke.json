@@ -5,7 +5,7 @@
   "tasks": [
     {
       "id": "write-answer-file",
-      "prompt": "Create a file named answer.txt in the repository root containing exactly the number 42 on a single line.",
+      "prompt": "Create a file named answer.txt in the repository root containing exactly the number 42 on a single line. When writing, use file_write with the direct:true argument so the file is written to disk immediately.",
       "timeout_seconds": 600,
       "seeds": [1],
       "checkers": [

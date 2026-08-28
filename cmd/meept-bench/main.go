@@ -86,7 +86,7 @@ func run(args []string) {
 	attempts := fs.Int("attempts", 1, "attempts per task")
 	model := fs.String("model", "", "model alias override")
 	repo := fs.String("repo", "", "source repo for worktrees")
-	scratch := fs.String("scratch", "/tmp/meept-bench", "worktree scratch root")
+	scratch := fs.String("scratch", os.Getenv("HOME")+"/.meept-bench", "worktree scratch root (keep under ~ so daemon security allowlists like allowed_paths=[\"~/*\"] cover it)")
 	out := fs.String("out", "", "results output dir")
 	judgeCmd := fs.String("judge-cmd", os.Getenv("MEEPT_BENCH_JUDGE_CMD"), "external judge command")
 	keepFailed := fs.Bool("keep-failed", false, "preserve failed attempt worktrees")
