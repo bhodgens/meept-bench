@@ -2,6 +2,7 @@
 package checkers
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -21,11 +22,11 @@ type Judge interface {
 
 // Result is one checker outcome.
 type Result struct {
-	Check      string  `json:"check"`
-	Passed     bool    `json:"passed"`
-	Score      float64 `json:"score,omitempty"`
-	Detail     string  `json:"detail,omitempty"`
-	Rationale  string  `json:"rationale,omitempty"`
+	Check     string  `json:"check"`
+	Passed    bool    `json:"passed"`
+	Score     float64 `json:"score,omitempty"`
+	Detail    string  `json:"detail,omitempty"`
+	Rationale string  `json:"rationale,omitempty"`
 }
 
 // Run executes a checker against the task worktree.
@@ -78,6 +79,10 @@ func fileContains(c suite.Check, wt string) (bool, string, error) {
 	if err != nil {
 		return false, "", fmt.Errorf("bad pattern: %w", err)
 	}
+	// Suite patterns conventionally use ^/$ anchors, but Go RE2 binds those to
+	// the whole TEXT, not per line. Files end with a trailing newline, so
+	// "^42$" can never match "42\n". Trim ONE trailing newline before
+	// matching; embedded newlines still make ^/$ unmatchable mid-file.
 	files := c.Files
 	if len(files) == 0 && c.File != "" {
 		files = []string{c.File}
@@ -87,11 +92,23 @@ func fileContains(c suite.Check, wt string) (bool, string, error) {
 		if err != nil {
 			continue
 		}
+		data = trimTrailingNewline(data)
 		if re.Match(data) {
 			return true, fmt.Sprintf("pattern found in %s", f), nil
 		}
 	}
 	return false, fmt.Sprintf("pattern not found in any of %d file(s)", len(files)), nil
+}
+
+func trimTrailingNewline(data []byte) []byte {
+	trimmed := bytes.TrimRight(data, "\n")
+	// Trim at most one newline's worth: "42\n\n" stays "42\n" so a deliberately
+	// blank final line still fails ^42$. TrimRight above removes all of them;
+	// restore one if two or more were removed.
+	if len(data)-len(trimmed) > 1 {
+		return trimmed[:len(trimmed)+1]
+	}
+	return trimmed
 }
 
 func exitZero(ctx context.Context, c suite.Check, wt string) (bool, string, error) {
