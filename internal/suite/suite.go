@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"time"
 )
 
@@ -91,6 +92,12 @@ func (m *Manifest) Validate() error {
 				}
 				if c.Pattern == "" {
 					return fmt.Errorf("task %s check[%d]: file_contains needs pattern", t.ID, j)
+				}
+				// Fail at load time, not after the task has burned an LLM call:
+				// an uncompilable pattern would otherwise only surface when the
+				// checker runs post-execution.
+				if _, err := regexp.Compile(c.Pattern); err != nil {
+					return fmt.Errorf("task %s check[%d]: bad pattern: %v", t.ID, j, err)
 				}
 			case "exit_zero":
 				if len(c.Command) == 0 {

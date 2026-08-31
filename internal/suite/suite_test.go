@@ -41,6 +41,7 @@ func TestValidateRejects(t *testing.T) {
 		"no prompt":  {Suite: "s", Tasks: []Task{{ID: "x", Checkers: []Check{{Type: "exit_zero", Command: []string{"true"}}}}}},
 		"no checker": {Suite: "s", Tasks: []Task{{ID: "x", Prompt: "p"}}},
 		"bad type":   {Suite: "s", Tasks: []Task{{ID: "x", Prompt: "p", Checkers: []Check{{Type: "wat"}}}}},
+		"bad regex":  {Suite: "s", Tasks: []Task{{ID: "x", Prompt: "p", Checkers: []Check{{Type: "file_contains", Files: []string{"f"}, Pattern: "[unclosed"}}}}},
 	}
 	for name, m := range cases {
 		if err := m.Validate(); err == nil {

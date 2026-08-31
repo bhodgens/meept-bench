@@ -45,6 +45,30 @@ func TestFileContains(t *testing.T) {
 	}
 }
 
+// TestFileContainsMultipleFiles: the checker passes if ANY listed file
+// matches (first-match-wins), and skips files that don't exist.
+func TestFileContainsMultipleFiles(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("alpha\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// b.txt intentionally missing — a matching existing file must still pass.
+	r := Run(context.Background(), suite.Check{Type: "file_contains", Files: []string{"missing.txt", "a.txt"}, Pattern: "alpha"}, dir, "", nil)
+	if !r.Passed {
+		t.Fatalf("want pass via second file, got %+v", r)
+	}
+	// No file matches.
+	r = Run(context.Background(), suite.Check{Type: "file_contains", Files: []string{"missing.txt", "a.txt"}, Pattern: "omega"}, dir, "", nil)
+	if r.Passed {
+		t.Fatalf("want fail, got %+v", r)
+	}
+	// Single legacy "file" field form still works.
+	r = Run(context.Background(), suite.Check{Type: "file_contains", File: "a.txt", Pattern: "alpha"}, dir, "", nil)
+	if !r.Passed {
+		t.Fatalf("want pass via legacy file field, got %+v", r)
+	}
+}
+
 func TestExitZero(t *testing.T) {
 	r := Run(context.Background(), suite.Check{Type: "exit_zero", Command: []string{"cat", "answer.txt"}}, wt(t), "", nil)
 	if !r.Passed {
