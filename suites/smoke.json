@@ -15,7 +15,7 @@
     },
     {
       "id": "repo-inventory",
-      "prompt": "List the files in the current directory and write the list, one file per line, to a new file named inventory.txt.",
+      "prompt": "List the files in the current directory and write the list, one file per line, to a new file named inventory.txt. Use file_write with direct:true.",
       "timeout_seconds": 600,
       "seeds": [1],
       "checkers": [
@@ -24,7 +24,7 @@
     },
     {
       "id": "open-ended-judge",
-      "prompt": "Create a file named summary.txt in the repository root containing the text: meept is an AI agent daemon. Use file_write with direct:true.",
+      "prompt": "Write a file named summary.txt in the repository root containing the text: meept is an AI agent daemon. Use file_write with direct:true.",
       "timeout_seconds": 600,
       "seeds": [1],
       "checkers": [
