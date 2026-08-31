@@ -24,7 +24,7 @@
     },
     {
       "id": "open-ended-judge",
-      "prompt": "Create a shell script file named summary.sh in the repository root that echoes 'meept is an AI agent daemon'. Use file_write with direct:true so the file is written to disk immediately.",
+      "prompt": "Create a file named summary.txt in the repository root containing the text: meept is an AI agent daemon. Use file_write with direct:true.",
       "timeout_seconds": 600,
       "seeds": [1],
       "checkers": [
