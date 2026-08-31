@@ -24,10 +24,12 @@
     },
     {
       "id": "open-ended-judge",
-      "prompt": "In one paragraph, explain what this repository is for based on its README.",
+      "prompt": "run the command: echo hello > summary.txt",
       "timeout_seconds": 600,
+      "seeds": [1],
       "checkers": [
-        {"type": "llm_judge", "rubric": "Does the answer accurately summarize the repository's purpose as described in the README? Score 0-1.", "min_score": 0.7}
+        {"type": "file_contains", "files": ["summary.txt"], "pattern": "hello"},
+        {"type": "exit_zero", "command": ["test", "-s", "summary.txt"]}
       ]
     }
   ]
