@@ -24,12 +24,12 @@
     },
     {
       "id": "open-ended-judge",
-      "prompt": "run the command: echo hello > summary.txt",
+      "prompt": "Create a file named summary.txt in the repository root containing the exact text: meept is an AI agent daemon. When writing, use file_write with the direct:true argument so the file is written to disk immediately.",
       "timeout_seconds": 600,
       "seeds": [1],
       "checkers": [
-        {"type": "file_contains", "files": ["summary.txt"], "pattern": "hello"},
-        {"type": "exit_zero", "command": ["test", "-s", "summary.txt"]}
+        {"type": "file_contains", "files": ["summary.txt"], "pattern": "agent"},
+        {"type": "file_contains", "files": ["summary.txt"], "pattern": "daemon"}
       ]
     }
   ]
