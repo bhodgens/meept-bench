@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/bhodgens/meept-bench/internal/checkers"
@@ -165,9 +166,13 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	}
 	cancelReg()
 
-	// Subscribe to tool progress + chat_message events for the trace.
+	// Subscribe to tool progress + completion + chat_message events for the
+	// trace. tool.execution.complete carries the success flag per tool call,
+	// which detectPendingWrites correlates against in-flight writes.
 	subCtx, cancelSub := context.WithTimeout(ctx, 10*time.Second)
-	sub, err := client.Subscribe(subCtx, []string{"tool.execution.progress", "chat_message"})
+	sub, err := client.Subscribe(subCtx, []string{
+		"tool.execution.progress", "tool.execution.complete", "chat_message",
+	})
 	cancelSub()
 	if err != nil {
 		return r.finishErr(wt, row, m, t, attempt, "error", "bus subscribe: "+err.Error())
@@ -184,6 +189,17 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 			})
 		}
 	})
+
+	// Snapshot daemon status before the chat so per-task cost can be
+	// derived as a before/after delta. The raw status values are daemon-wide
+	// cumulative counters; subtracting two snapshots isolates this task's
+	// usage even though concurrent tasks make the split approximate.
+	snapCtx, cancelSnap := context.WithTimeout(ctx, 5*time.Second)
+	beforeStatus, beforeErr := client.Status(snapCtx)
+	cancelSnap()
+	if beforeErr != nil && r.opt.Logf != nil {
+		r.opt.Logf("warning: pre-chat status unavailable (%v); cost will be totals, not delta", beforeErr)
+	}
 
 	chatCtx, cancelChat := context.WithTimeout(ctx, t.Timeout())
 	defer cancelChat()
@@ -205,6 +221,25 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	}
 	transcript.FinalReply = resp.Reply
 	transcript.EndedAt = time.Now()
+
+	// Routing assertion: ask the daemon which agent handled this
+	// conversation and record it in the transcript. When the suite
+	// declares expect_agent and the daemon reports a different agent,
+	// fail the row with a routing-mismatch check result — the task may
+	// have been executed by an agent without the tools/skills it needed.
+	agentCtx, cancelAgent := context.WithTimeout(ctx, 5*time.Second)
+	routed, agentErr := client.DispatchedAgent(agentCtx, conversationID)
+	cancelAgent()
+	if agentErr != nil && r.opt.Logf != nil {
+		r.opt.Logf("warning: dispatch trace unavailable (%v); routing not asserted", agentErr)
+	}
+	transcript.RoutedAgent = routed
+	if t.ExpectAgent != "" && routed != "" && routed != t.ExpectAgent {
+		r.writeTranscript(name, transcript)
+		return r.finishErr(wt, row, m, t, attempt, "fail",
+			fmt.Sprintf("routing mismatch: expect_agent=%s routed=%s", t.ExpectAgent, routed))
+	}
+
 	r.writeTranscript(name, transcript)
 
 	// Checkers.
@@ -221,13 +256,53 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	row.Passed = passed
 	row.Verdict = map[bool]string{true: "pass", false: "fail"}[passed]
 
-	// Cost from the daemon status snapshot (budget tracker totals).
-	if st, err := client.Status(ctx); err == nil {
-		row.TokensIn, _ = toInt(st["tokens_used"])
-		if b, ok := st["budget"].(map[string]any); ok {
-			cost, _ := toFloat(b["daily_used"])
-			row.CostUSD = cost
+	// Surface staged (pending-change) writes on failures: the agent may have
+	// staged a file write for review instead of writing to disk, so the file
+	// is absent from the worktree and the failure looks mysterious. Only
+	// annotate failing rows — passing rows don't need the diagnosis.
+	if !passed {
+		if pending := detectPendingWrites(transcript); len(pending) > 0 {
+			// Append to the Detail of failing file checkers (exact_file,
+			// file_contains); for other check types add a synthetic
+			// "pending_writes" result so scorecards still show WHY.
+			for i, c := range t.Checkers {
+				isFileCheck := c.Type == "exact_file" || c.Type == "file_contains"
+				if isFileCheck && !passedCheck(checkResults[i]) {
+					checkResults[i] = appendDetail(checkResults[i],
+						"possible cause: "+strings.Join(pending, "; "))
+				}
+			}
+			row.Checks = append(checkResults, map[string]any{
+				"check":  "pending_writes",
+				"passed": false,
+				"detail": "agent staged " + fmt.Sprint(len(pending)) +
+					" write(s) as pending changes instead of writing directly; " +
+					"they were never accepted: " + strings.Join(pending, "; "),
+			})
+			row.Passed = passed
 		}
+	}
+
+	// Per-task cost via before/after status delta. `status` exposes
+	// daemon-wide cumulative counters (tokens_used = hourly tokens,
+	// daily_cost_used = daily cost), so the subtraction isolates what this
+	// task actually consumed. When the pre-chat snapshot failed we fall
+	// back to the raw totals — wrong attribution, but better than zero.
+	if afterStatus, err := client.Status(ctx); err == nil {
+		tokensIn := statusTokens(afterStatus)
+		costUSD := statusCost(afterStatus)
+		if beforeErr == nil {
+			tokensIn -= statusTokens(beforeStatus)
+			costUSD -= statusCost(beforeStatus)
+			if tokensIn < 0 {
+				tokensIn = 0 // counters reset (daily rollover) mid-task
+			}
+			if costUSD < 0 {
+				costUSD = 0
+			}
+		}
+		row.TokensIn = tokensIn
+		row.CostUSD = costUSD
 	} else if r.opt.Logf != nil {
 		r.opt.Logf("warning: cost unavailable (status call failed)")
 	}
@@ -335,6 +410,36 @@ func toFloat(v any) (float64, bool) {
 	}
 }
 
+// statusTokens extracts the daemon's cumulative hourly token counter from a
+// status map. Top-level first, then the nested budget map.
+func statusTokens(st map[string]any) int64 {
+	if n, ok := toInt(st["tokens_used"]); ok {
+		return n
+	}
+	if b, ok := st["budget"].(map[string]any); ok {
+		n, _ := toInt(b["hourly_used"])
+		return n
+	}
+	return 0
+}
+
+// statusCost extracts the daemon's cumulative daily cost (USD) from a
+// status map. Prefers the real cost counter (daily_cost_used, both top-level
+// and under budget); daily_used (tokens, not USD) is a legacy fallback.
+func statusCost(st map[string]any) float64 {
+	if c, ok := toFloat(st["daily_cost_used"]); ok {
+		return c
+	}
+	if b, ok := st["budget"].(map[string]any); ok {
+		if c, ok := toFloat(b["daily_cost_used"]); ok {
+			return c
+		}
+		c, _ := toFloat(b["daily_used"])
+		return c
+	}
+	return 0
+}
+
 func sanitize(s string) string {
 	out := make([]rune, 0, len(s))
 	for _, c := range s {
@@ -345,4 +450,242 @@ func sanitize(s string) string {
 		}
 	}
 	return string(out)
+}
+
+// maxPendingWriteDetails caps the diagnostic noise per failing row.
+const maxPendingWriteDetails = 5
+
+// detectPendingWrites scans the tool trace for file_write/file_edit tool
+// calls that staged a pending change instead of writing to disk, returning
+// one human-readable detail string per offending call (capped at
+// maxPendingWriteDetails).
+//
+// Two signals are used, in order of reliability:
+//
+//  1. Correlation: the daemon's WriteFileTool emits a "writing …" progress
+//     (percent 10) for every write, but only the direct path reaches the
+//     "write complete" progress (percent 100) — the staged path returns
+//     right after creating the pending change. A file_write call that
+//     started but never completed therefore staged its write.
+//  2. Payload text: the sentinel result text ("Created pending change …",
+//     "use 'resolve' tool") or arguments carrying direct:false / no direct
+//     flag, whenever the payload shape includes them.
+//
+// All payload shapes are handled defensively: any decode failure simply
+// yields no detail for that event, never a panic.
+func detectPendingWrites(transcript *results.Transcript) []string {
+	if transcript == nil {
+		return nil
+	}
+
+	type callState struct {
+		tool     string
+		startMsg string
+		progress bool // saw a completion progress ("write complete", percent 100)
+		staged   bool // sentinel text / direct-flag evidence
+		detail   string
+	}
+	calls := map[string]*callState{}
+	var order []string // tool_call_ids in first-seen order, for stable output
+
+	record := func(id string) *callState {
+		if id == "" {
+			return nil
+		}
+		c, ok := calls[id]
+		if !ok {
+			c = &callState{}
+			calls[id] = c
+			order = append(order, id)
+		}
+		return c
+	}
+
+	for _, ev := range transcript.ToolTrace {
+		if len(ev.Raw) == 0 {
+			continue
+		}
+		var p toolProgressPayload
+		if err := json.Unmarshal(ev.Raw, &p); err != nil {
+			continue // unknown shape: conservative, skip
+		}
+		if !isFileMutationTool(p.ToolName) {
+			continue
+		}
+		c := record(p.ToolCallID)
+		if c != nil {
+			c.tool = p.ToolName
+		}
+
+		// Signal 1: completion progress on the streaming path.
+		msg := strings.ToLower(p.Message)
+		if p.Percent >= 100 || strings.Contains(msg, "complete") {
+			if c != nil {
+				c.progress = true
+			}
+			continue
+		}
+		// Remember the start message; it carries the target path.
+		if c != nil && c.startMsg == "" && strings.HasPrefix(msg, "writing ") {
+			c.startMsg = p.Message
+		}
+
+		// Signal 2: sentinel text or direct-flag evidence.
+		if d := pendingWriteDetail(p); d != "" && (c == nil || c.detail == "") {
+			if c != nil {
+				c.staged = true
+				c.detail = d
+			}
+		}
+	}
+
+	var out []string
+	emit := func(d string) {
+		if d != "" && len(out) < maxPendingWriteDetails {
+			out = append(out, d)
+		}
+	}
+	// Explicit evidence first (sentinel text / direct:false).
+	for _, id := range order {
+		c := calls[id]
+		if c.staged && c.detail != "" {
+			emit(c.detail)
+		}
+	}
+	// Then inference: file_write calls that started but never completed.
+	for _, id := range order {
+		c := calls[id]
+		if c.staged || c.progress || strings.Contains(strings.ToLower(c.tool), "file_edit") {
+			continue
+		}
+		emit(fmt.Sprintf("%s: write to %s started but never completed — staged as a pending change instead of writing to disk (use direct:true to write immediately)",
+			c.tool, pathFromStartMessage(c.startMsg)))
+	}
+	return out
+}
+
+// toolProgressPayload mirrors the fields the daemon puts on
+// tool.execution.progress / tool.execution.complete payloads, plus optional
+// argument fields some shapes carry. Everything is optional; absent fields
+// simply don't contribute evidence.
+type toolProgressPayload struct {
+	ToolCallID    string          `json:"tool_call_id"`
+	ToolName      string          `json:"tool_name"`
+	Tool          string          `json:"tool"` // alternative key used by some shapes
+	Message       string          `json:"message"`
+	Status        string          `json:"status"`
+	Detail        string          `json:"detail"`
+	Result        string          `json:"result"`
+	Percent       float64         `json:"percent"`
+	ArgsSummary   json.RawMessage `json:"args_summary"`
+	Arguments     json.RawMessage `json:"arguments"`
+	PartialResult json.RawMessage `json:"partial_result"`
+}
+
+func isFileMutationTool(name string) bool {
+	if name == "" {
+		return false
+	}
+	n := strings.ToLower(name)
+	return strings.Contains(n, "file_write") || strings.Contains(n, "file_edit")
+}
+
+// pendingWriteDetail returns "" unless the payload itself carries staged-
+// write evidence: the daemon's sentinel result text or file-tool arguments
+// with direct:false / direct absent.
+func pendingWriteDetail(p toolProgressPayload) string {
+	summary := strings.ToLower(strings.Join([]string{p.Message, p.Status, p.Detail, p.Result}, " "))
+	if strings.Contains(summary, "pending change") ||
+		strings.Contains(summary, "pending_change_created") ||
+		strings.Contains(summary, "use 'resolve' tool") {
+		return fmt.Sprintf("%s: %s", p.ToolName, firstNonEmpty(p.Result, p.Detail, p.Message))
+	}
+
+	// Fall back to the direct flag in the call arguments, when the payload
+	// carries them. direct absent is treated as staged because the daemon
+	// defaults to staging whenever the pending-changes registry is wired.
+	raw := firstNonEmptyJSON(p.Arguments, p.ArgsSummary)
+	if len(raw) > 0 {
+		var args struct {
+			Direct *bool `json:"direct"`
+		}
+		if err := json.Unmarshal(raw, &args); err != nil {
+			return "" // malformed args: no evidence either way
+		}
+		switch {
+		case args.Direct != nil && !*args.Direct:
+			return fmt.Sprintf("%s: direct=false (write staged for review, not applied)", p.ToolName)
+		case args.Direct == nil:
+			return fmt.Sprintf("%s: no direct flag (write may be staged for review)", p.ToolName)
+		}
+	}
+	return ""
+}
+
+// pathFromStartMessage extracts the target path from a "writing <path>
+// (N bytes)..." progress message, falling back to the raw message.
+func pathFromStartMessage(msg string) string {
+	if msg == "" {
+		return "(unknown path)"
+	}
+	s := strings.TrimPrefix(msg, "writing ")
+	if i := strings.Index(s, " ("); i != -1 {
+		s = s[:i]
+	}
+	return strings.TrimSuffix(strings.TrimSpace(s), "...")
+}
+
+// passedCheck reports whether a checker result (checkers.Result or a map,
+// depending on how it was stored) passed.
+func passedCheck(res any) bool {
+	switch v := res.(type) {
+	case checkers.Result:
+		return v.Passed
+	case *checkers.Result:
+		return v != nil && v.Passed
+	case map[string]any:
+		b, _ := v["passed"].(bool)
+		return b
+	default:
+		return true // unknown shape: don't annotate
+	}
+}
+
+// appendDetail appends to a checker result's Detail, returning the updated
+// result. Unknown shapes are returned unchanged.
+func appendDetail(res any, extra string) any {
+	switch v := res.(type) {
+	case checkers.Result:
+		v.Detail = strings.TrimSpace(v.Detail + " " + extra)
+		return v
+	case *checkers.Result:
+		if v != nil {
+			v.Detail = strings.TrimSpace(v.Detail + " " + extra)
+		}
+		return v
+	case map[string]any:
+		d, _ := v["detail"].(string)
+		v["detail"] = strings.TrimSpace(d + " " + extra)
+		return v
+	default:
+		return res
+	}
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func firstNonEmptyJSON(vals ...json.RawMessage) json.RawMessage {
+	for _, v := range vals {
+		if len(v) > 0 {
+			return v
+		}
+	}
+	return nil
 }

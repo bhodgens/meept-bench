@@ -6,6 +6,7 @@
     {
       "id": "write-answer-file",
       "prompt": "Create a file named answer.txt in the repository root containing exactly the number 42 on a single line. When writing, use file_write with the direct:true argument so the file is written to disk immediately.",
+      "expect_agent": "coder",
       "timeout_seconds": 600,
       "seeds": [1],
       "checkers": [
@@ -16,6 +17,7 @@
     {
       "id": "repo-inventory",
       "prompt": "List the files in the current directory and write the list, one file per line, to a new file named inventory.txt. Use file_write with direct:true.",
+      "expect_agent": "coder",
       "timeout_seconds": 600,
       "seeds": [1],
       "checkers": [
@@ -25,6 +27,7 @@
     {
       "id": "open-ended-judge",
       "prompt": "Write a file named summary.txt in the repository root containing the text: meept is an AI agent daemon. Use file_write with direct:true.",
+      "expect_agent": "coder",
       "timeout_seconds": 600,
       "seeds": [1],
       "checkers": [

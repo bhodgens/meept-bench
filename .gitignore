@@ -1,3 +1,4 @@
-results/
+# bench run output (never the source tree; internal/results/ is a package)
+/results/
 suites/cache/
 *.local.json

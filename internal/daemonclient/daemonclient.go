@@ -11,6 +11,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -252,11 +253,11 @@ func (c *Client) Chat(ctx context.Context, message, sessionID string) (*ChatResp
 
 	// Watcher drains chat_message events into a channel keyed by conversation.
 	type replyMsg struct {
-		Role           string    `json:"role"`
-		Content        string    `json:"content"`
-		SessionID      string    `json:"session_id"`
-		ConversationID string    `json:"conversation_id"`
-		Error          string    `json:"error"`
+		Role           string `json:"role"`
+		Content        string `json:"content"`
+		SessionID      string `json:"session_id"`
+		ConversationID string `json:"conversation_id"`
+		Error          string `json:"error"`
 	}
 	replies := make(chan replyMsg, 16)
 	subCtx, cancelSub := context.WithTimeout(context.Background(), 10*time.Second)
@@ -474,4 +475,47 @@ func (c *Client) SessionCreate(ctx context.Context) (*SessionIDs, error) {
 		return nil, fmt.Errorf("session.create returned no ids")
 	}
 	return ids, nil
+}
+
+// DispatchedAgent returns the agent the dispatcher routed the most recent
+// message in the given session/conversation to, by querying the daemon's
+// "session.dispatch_trace" RPC (persistent dispatch audit log, most recent
+// first). Dispatch decisions are recorded keyed by the conversation ID
+// (meept internal/agent/handler.go passes conversationID to RecordDispatch),
+// so callers may pass either identifier.
+//
+// Returns ("", nil) — not an error — when the daemon exposes no dispatch
+// trace (RPC method not registered / metrics store absent) or when no
+// entries exist for the session; the runner treats empty as "routing
+// unknown, skip assertion".
+func (c *Client) DispatchedAgent(ctx context.Context, sessionOrConversationID string) (string, error) {
+	if sessionOrConversationID == "" {
+		return "", nil
+	}
+	var out struct {
+		Entries []struct {
+			AgentID string `json:"agent_id"`
+			Error   string `json:"error"`
+		} `json:"entries"`
+	}
+	err := c.Call(ctx, "session.dispatch_trace", map[string]any{
+		"session_id": sessionOrConversationID,
+		"limit":      1,
+	}, &out)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return "", err
+		}
+		// Unknown-method / unavailable store: treat as "no routing info".
+		return "", nil
+	}
+	for _, e := range out.Entries {
+		if e.Error != "" {
+			continue // skip failed dispatches
+		}
+		if e.AgentID != "" {
+			return e.AgentID, nil
+		}
+	}
+	return "", nil
 }
