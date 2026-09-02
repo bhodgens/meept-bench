@@ -35,6 +35,11 @@ How to run the meept regression gate, read failures, and update baselines.
 /tmp/meept-bench-bin diff --baseline results/regression-run1/results.jsonl \
                           --current  results/regression-run2/results.jsonl
 
+# Gate one-liner — run after ANY meept change (exit 0 = safe to merge):
+/tmp/meept-bench-bin run --suite suites/regression.json --out results/regression --auto-approved && \
+/tmp/meept-bench-bin diff --baseline results/baseline/regression.jsonl \
+                          --current  results/regression/results.jsonl
+
 # Keep failed-attempt worktrees for postmortems:
 /tmp/meept-bench-bin run --suite suites/regression.json --out results/regression-dbg --keep-failed --auto-approved
 ```
@@ -109,8 +114,34 @@ cp results/regression-run2/results.jsonl results/baseline/regression.jsonl
 mkdir -p results/baseline   # if it doesn't exist yet
 ```
 
-Local convention until CI lands — the baseline is not committed yet. Diff
-against it before merging changes that touch dispatch, memory, or the bus.
+The baseline **is committed**: `results/baseline/regression.jsonl` pins the
+gate. `.gitignore` excludes `/results/*` but negates `results/baseline/`, so
+only baseline JSONLs are tracked. Diff against it before merging changes that
+touch dispatch, memory, or the bus:
+
+```sh
+/tmp/meept-bench-bin diff --baseline results/baseline/regression.jsonl \
+                          --current  results/<new-run>/results.jsonl
+```
+
+Never edit the baseline to make a red gate green — see *Flake policy* below.
+
+## Flake policy
+
+A gate nobody has tested failing is decoration — the injected-fault drill
+(clearing the committed baseline's `file-write-routes-coder` checker pattern,
+full suite run, `diff` exit 1, restore, clean re-verify) proves the gate has
+teeth. When the gate goes red on a real change:
+
+- **Failing < 1 in 5 local runs = flaky.** Tag it `flaky` in
+  `suites/regression.json` and keep it in the suite. The runner has no tag
+  filter yet (`Manifest.Select` matches ID substrings only), so until
+  `--ignore-tags flaky` lands, exclude a flaky task from a gate run
+  manually with `--task` — running the suite in two passes and diffing the
+  concatenated results — or let it fail: a tag alone does not turn the gate
+  red, the diff does.
+- **Failing deterministically = real regression.** The diff gate fires:
+  fix meept or fix the task. **Never fix the baseline.**
 
 ## Known-failures
 

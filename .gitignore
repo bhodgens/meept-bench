@@ -1,4 +1,9 @@
-# bench run output (never the source tree; internal/results/ is a package)
-/results/
+# bench run output (never the source tree; internal/results/ is a package).
+# /results/* (contents) rather than /results/ (dir): a negation cannot
+# re-include files under an excluded directory.
+/results/*
+# Baseline JSONLs ARE committed — they pin the diff gate (RUNBOOK "Baseline updates")
+!results/baseline/
+!results/baseline/**
 suites/cache/
 *.local.json
