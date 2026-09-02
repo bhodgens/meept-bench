@@ -12,7 +12,9 @@ Pre-registered expectations from the 2026-08-24 parity audit. Written BEFORE fir
 3. **Loop guards** — no repetition/no-progress/duplicate-query rollback today; long-horizon GAIA tasks punish this hardest. Borrow list item 5 in the audit report.
 4. **Local-model tier** — $/task numbers will be uncompetitive vs atomic-agent's published economics until stable-prefix prompt ordering + a managed local small-model path exist. Affects cost columns, not pass rates.
 5. **Steering UX over RPC** — benchmark runner drives the daemon headlessly; if steering/follow-up queues behave differently over RPC than TUI, multi-turn suites (τ-bench) will surface it. Verify early in phase 1.
+   *Phase-1 check:* phase-1/2 tasks are single-turn (one chat request → final reply → checkers), so no steering defect surfaced — but the harness does not exercise steering/follow-up at all yet. Still open until a multi-turn suite runs.
 6. **Approval gates with no human present** — τ-bench and any suite hitting `require_confirmation_high` actions will deadlock waiting on approvals that never come. Harness needs an auto-approver mode in the daemon config (or per-suite policy file) — and results must disclose it.
+   *Phase-2 update:* the disclosure half landed — runner `--auto-approved` flag and a per-row `auto_approved` field (`internal/results/results.go`). Auto-approval of daemon confirmation gates during headless runs is still open; current smoke/regression tasks simply avoid confirmation-gated actions.
 
 ## Measurement infrastructure gaps
 
@@ -33,6 +35,12 @@ Verified against a live daemon during phase-1 bring-up:
    instead of performing the task. The word "create" appears to collide
    with skill keywords in the classifier. Blocks all Terminal-Bench-style
    suites until fixed. Reproduce: `meept-bench run --suite suites/smoke.json`.
+   **Status (2026-09-01): FIXED in meept** — `4f48e129` (classifier keywords)
+   + `a0939721` (tool_hint→coder mapping). The smoke suite's three
+   `expect_agent: coder` file-write tasks cover the prompt shape, and the
+   regression suite pins it (`file-write-routes-coder`,
+   `tool-hint-coder-maps-coder`, tagged with both commits — passing in the
+   two local regression runs). Unblocks Terminal-Bench-style suites.
 10. **Topic detector substring match misroutes threads** — "Cre*ate*"
     matches the food keyword "*eat*", tagging the thread
     `-thread-food-…`. Cosmetic today, but thread routing keys off it.
@@ -42,3 +50,7 @@ Verified against a live daemon during phase-1 bring-up:
 12. **Session identity is split** — `project.set` needs the primary ID
     (`session-…`) while chat/session lookups key on the conversation ID
     (`conv-…`). Documented here so future adapters bind both correctly.
+    *Phase-2 update:* the bench harness now binds both IDs
+    (`session.create` → `project.set` → conv-ID chat, commit `a76414a`);
+    pinned by regression tasks tagged `gap-12-session` (`session-workdir-bound`,
+    `memory-store-marker`, `memory-recall-marker`).

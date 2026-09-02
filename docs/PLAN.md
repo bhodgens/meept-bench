@@ -47,3 +47,25 @@ Expected findings (pre-registered so we can't rationalize later):
 - No training on benchmark tasks, no prompt-tuning-to-the-test.
 - No publishing until a full suite completes end-to-end twice with stable checkers.
 - No comparison claims vs other agents' published numbers unless run configs are comparable; label everything self-run.
+
+## Phase 2 status (2026-09-01)
+
+Status as of the phase-2 wave; claims limited to artifacts present in the tree at commit time.
+
+**Landed:**
+
+- **Regression gate** (order 0, unplanned in the original table — promoted after the live smoke run exposed fixable daemon bugs): `suites/regression.json` — 9 tasks, one per fixed meept bug, each tagged with its origin commit/gap (`4f48e129`, `a0939721`, `a20b105c`, `01c4f38`, gap-12 session binding). Green twice consecutively on the 8 non-known-failure tasks in two local runs (`results/regression-run1`, `-run2`; run artifacts are gitignored and not committed — reproduce via docs/RUNBOOK.md). `memory-recall-marker` is tagged `known-failure`: meept's cross-conversation recall gap keeps it red by design.
+- **Smoke suite**: `suites/smoke.json` (2 tasks), run per push in CI.
+- **Scorecard diff**: `meept-bench diff --baseline FILE --current FILE` with best-attempt comparison; exit 1 on regression (`internal/diff/`).
+- **CI workflow**: `.github/workflows/bench.yml` — smoke job on every push to main; nightly job (cron 07:00 UTC) runs smoke + regression and diff-gates against the `bench-baselines` branch baseline; only green runs update the baseline (`scripts/update-baseline.sh` green gate).
+- **Docs**: `docs/RUNBOOK.md` — operator runbook for the gate.
+
+**In flight (not landed):**
+
+- LongMemEval-S template + adapter (order 1 in the table above).
+
+**Not started:**
+
+- GAIA (order 2), Terminal-Bench (order 3), τ-bench retail (order 4), SWE-bench Lite (order 5) — per the phase-2 table above; GAIA remains blocked per docs/BENCHMARKS.md gating rules.
+
+Original phase descriptions above are kept unedited; this section only records what shipped.

@@ -2,9 +2,14 @@
 
 Outcome-level benchmark harness for [meept](https://github.com/bhodgens/meept), the personal AI agent daemon. This repo exists because meept ships strong internal QA (custom static analyzers, generated connectivity graphs, race tests) but zero published evaluation evidence. Competitors publish GAIA artifacts, memory evals, and context-policy measurements; meept publishes nothing measurable. This fixes that.
 
-## Status: Phase 1 harness implemented
+## Status: Phase 2 in progress — regression gate live
 
-The runner drives a live meept daemon end to end: suite manifest → per-task git worktree → JSON-RPC chat over the unix socket → bus event trace → checkers → JSONL results → markdown/JSON scorecard. See [docs/PLAN.md](docs/PLAN.md) for phase status.
+The runner drives a live meept daemon end to end: suite manifest → per-task git worktree → JSON-RPC chat over the unix socket → bus event trace → checkers → JSONL results → markdown/JSON scorecard. Phase 1 (harness) is complete; see [docs/PLAN.md](docs/PLAN.md) for phase status. What has landed in phase 2:
+
+- **Regression gate live** — [suites/regression.json](suites/regression.json): 9 tasks, one per fixed meept bug, each tagged with its origin commit/gap (`4f48e129` routing, `a0939721` tool-hint, bus trace, session/workdir binding, cost rows). Green twice consecutively on the 8 non-known-failure tasks in local runs (`results/regression-run1`, `-run2`; run artifacts are gitignored, not committed — reproduce per [docs/RUNBOOK.md](docs/RUNBOOK.md)). `memory-recall-marker` stays red by design (`known-failure` tag): meept's cross-conversation recall gap.
+- **Scorecard diff** — `meept-bench diff --baseline --current`: best-attempt comparison across two runs, exit 1 on regression ([internal/diff](internal/diff)).
+- **CI** — [.github/workflows/bench.yml](.github/workflows/bench.yml): smoke suite on every push to main; nightly regression run + diff gate against the `bench-baselines` branch (only green runs update the baseline).
+- **In flight** — LongMemEval-S template + adapter (not landed yet).
 
 ## Quick start
 
@@ -12,6 +17,8 @@ The runner drives a live meept daemon end to end: suite manifest → per-task gi
 go build ./...                      # stdlib-only, no external deps
 ./meept-bench doctor                # verify the daemon is reachable
 ./meept-bench run --suite suites/smoke.json --attempts 1
+./meept-bench run --suite suites/regression.json --attempts 1 --auto-approved   # the gate: 9 tasks
+./meept-bench diff --baseline results/regression-run1/results.jsonl --current results/regression-run2/results.jsonl
 ./meept-bench scorecard results/smoke/results.jsonl
 ```
 
@@ -33,6 +40,10 @@ Requirements:
 | `--auto-approved` | disclose approval gates ran with no human present |
 
 Outputs land in `results/<suite>/`: `results.jsonl` (one row per attempt: verdict, seed, cost, wall time, HF revision), `transcripts/*.json` (prompt, final reply, distilled tool trace from `tool.execution.progress` / `chat_message` bus events), and `scorecard.{md,json}` (pass rate, mean cost/task, failure taxonomy by meept error kind, per-seed variance). Every scorecard is labeled **self-run** per docs/BENCHMARKS.md rule 3.
+
+## Operating the gate
+
+Prerequisites, run commands, failure triage, and baseline policy: [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ## What runs here
 

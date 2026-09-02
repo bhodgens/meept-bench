@@ -28,3 +28,4 @@ GAIA (gaia-benchmark/GAIA on HuggingFace) is a GATED dataset: access requires ac
 2. Never redistribute benchmark task content in this repo — store adapters + manifests referencing the upstream source.
 3. Published scorecards must state: exact task list, seeds, model(s), date, and "self-run" labeling.
 4. If a suite's terms forbid publishing scores (some do), run it internally for regression tracking only and mark it internal in the manifest.
+5. Generated suites (adapter output, e.g. `longmemeval-s.generated`) are never committed. Committed template suites must use synthetic fixtures, never upstream task content. Every generated task embeds the dataset revision hash in its tags/meta for reproducibility.
