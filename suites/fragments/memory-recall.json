@@ -23,7 +23,8 @@
           ],
           "pattern": "stored"
         }
-      ]
+      ],
+      "expect_agent": "coder"
     },
     {
       "id": "memory-recall-marker",
@@ -46,7 +47,8 @@
           ],
           "pattern": "BENCH-7391|MEMORY-UNAVAILABLE"
         }
-      ]
+      ],
+      "expect_agent": "coder"
     },
     {
       "id": "session-workdir-bound",

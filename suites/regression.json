@@ -8,11 +8,30 @@
       "prompt": "Create a file named routing-check.txt in the repository root containing the text: dispatch works. Use file_write with direct:true.",
       "expect_agent": "coder",
       "timeout_seconds": 300,
-      "seeds": [1],
-      "tags": ["regression", "gap-9-routing", "4f48e129"],
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "gap-9-routing",
+        "4f48e129"
+      ],
       "checkers": [
-        {"type": "file_contains", "files": ["routing-check.txt"], "pattern": "dispatch works"},
-        {"type": "exit_zero", "command": ["test", "-s", "routing-check.txt"]}
+        {
+          "type": "file_contains",
+          "files": [
+            "routing-check.txt"
+          ],
+          "pattern": "dispatch works"
+        },
+        {
+          "type": "exit_zero",
+          "command": [
+            "test",
+            "-s",
+            "routing-check.txt"
+          ]
+        }
       ]
     },
     {
@@ -20,10 +39,22 @@
       "prompt": "Create a file named hint-check.txt in the repository root containing the text: hint ok. Use file_write with direct:true.",
       "expect_agent": "coder",
       "timeout_seconds": 300,
-      "seeds": [1],
-      "tags": ["regression", "a0939721", "tool-hint"],
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "a0939721",
+        "tool-hint"
+      ],
       "checkers": [
-        {"type": "file_contains", "files": ["hint-check.txt"], "pattern": "^hint ok$"}
+        {
+          "type": "file_contains",
+          "files": [
+            "hint-check.txt"
+          ],
+          "pattern": "^hint ok$"
+        }
       ]
     },
     {
@@ -31,75 +62,190 @@
       "prompt": "Create a file named direct-check.txt in the repository root containing: written directly. Use file_write with direct:true.",
       "expect_agent": "coder",
       "timeout_seconds": 300,
-      "seeds": [1],
-      "tags": ["regression", "pending-writes", "01c4f38"],
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "pending-writes",
+        "01c4f38"
+      ],
       "checkers": [
-        {"type": "file_contains", "files": ["direct-check.txt"], "pattern": "written directly"}
+        {
+          "type": "file_contains",
+          "files": [
+            "direct-check.txt"
+          ],
+          "pattern": "written directly"
+        }
       ]
     },
     {
       "id": "memory-store-marker",
       "prompt": "I want you to remember an important fact in your long-term memory so it survives across conversations: the deployment codeword is BENCH-7391. Store this fact in your memory now. Then confirm the memory was stored by creating a file named mem-store.txt in the repository root containing exactly the word: stored. Use file_write with direct:true.",
       "timeout_seconds": 300,
-      "seeds": [1],
-      "tags": ["regression", "memory", "gap-12-session"],
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "memory",
+        "gap-12-session"
+      ],
       "checkers": [
-        {"type": "file_contains", "files": ["mem-store.txt"], "pattern": "stored"}
-      ]
+        {
+          "type": "file_contains",
+          "files": [
+            "mem-store.txt"
+          ],
+          "pattern": "stored"
+        }
+      ],
+      "expect_agent": "coder"
     },
     {
       "id": "session-workdir-bound",
       "prompt": "Create a file named cwd.txt in the repository root containing the absolute path of your current working directory (one line, just the path). Use file_write with direct:true.",
       "timeout_seconds": 300,
-      "seeds": [1],
-      "tags": ["regression", "gap-12-session", "01c4f38"],
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "gap-12-session",
+        "01c4f38"
+      ],
       "checkers": [
-        {"type": "file_contains", "files": ["cwd.txt"], "pattern": "\\.meept-bench/|/tmp/meept-bench/"},
-        {"type": "exit_zero", "command": ["sh", "-c", "! grep -q '/Users/caimlas/git/meept-bench$' cwd.txt"]}
+        {
+          "type": "file_contains",
+          "files": [
+            "cwd.txt"
+          ],
+          "pattern": "\\.meept-bench/|/tmp/meept-bench/"
+        },
+        {
+          "type": "exit_zero",
+          "command": [
+            "sh",
+            "-c",
+            "! grep -q '/Users/caimlas/git/meept-bench$' cwd.txt"
+          ]
+        }
       ]
     },
     {
       "id": "bus-trace-arrives",
       "prompt": "Create a file named probe-check.txt in the repository root containing the text: probed. Use file_write with direct:true.",
       "timeout_seconds": 300,
-      "seeds": [1],
-      "tags": ["regression", "harness-integrity", "a20b105c"],
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "harness-integrity",
+        "a20b105c"
+      ],
       "checkers": [
-        {"type": "file_contains", "files": ["probe-check.txt"], "pattern": "probed"},
-        {"type": "exit_zero", "command": ["sh", "-c", "python3 -c \"import json,glob,os,sys; ms=glob.glob('/Users/caimlas/git/meept-bench/results/**/transcripts/*bus-trace-arrives*.json', recursive=True); t=json.load(open(max(ms, key=os.path.getmtime))); sys.exit(0 if len(t.get('tool_trace', []))>0 else 1)\" || (echo 'tool_trace empty or transcript missing - bus subscription regressed (a20b105c)'; exit 1)"]}
+        {
+          "type": "file_contains",
+          "files": [
+            "probe-check.txt"
+          ],
+          "pattern": "probed"
+        },
+        {
+          "type": "exit_zero",
+          "command": [
+            "sh",
+            "-c",
+            "python3 -c \"import json,glob,os,sys; ms=glob.glob('/Users/caimlas/git/meept-bench/results/**/transcripts/*bus-trace-arrives*.json', recursive=True); t=json.load(open(max(ms, key=os.path.getmtime))); sys.exit(0 if len(t.get('tool_trace', []))>0 else 1)\" || (echo 'tool_trace empty or transcript missing - bus subscription regressed (a20b105c)'; exit 1)"
+          ]
+        }
       ]
     },
     {
       "id": "harness-cost-row-present",
       "prompt": "Create a file named cost-check.txt in the repository root containing the text: costed. Use file_write with direct:true.",
       "timeout_seconds": 300,
-      "seeds": [1],
-      "tags": ["regression", "harness-integrity", "01c4f38"],
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "harness-integrity",
+        "01c4f38"
+      ],
       "checkers": [
-        {"type": "file_contains", "files": ["cost-check.txt"], "pattern": "costed"},
-        {"type": "exit_zero", "command": ["sh", "-c", "[ -f /Users/caimlas/git/meept-bench/results/regression/results.jsonl ] || exit 0; python3 -c \"import json,sys; rows=[json.loads(l) for l in open('/Users/caimlas/git/meept-bench/results/regression/results.jsonl') if l.strip()]; bad=[r for r in rows if r.get('verdict')=='pass' and r.get('tokens_in',0)<0]; sys.exit(1 if bad else 0)\""]}
+        {
+          "type": "file_contains",
+          "files": [
+            "cost-check.txt"
+          ],
+          "pattern": "costed"
+        },
+        {
+          "type": "exit_zero",
+          "command": [
+            "sh",
+            "-c",
+            "[ -f /Users/caimlas/git/meept-bench/results/regression/results.jsonl ] || exit 0; python3 -c \"import json,sys; rows=[json.loads(l) for l in open('/Users/caimlas/git/meept-bench/results/regression/results.jsonl') if l.strip()]; bad=[r for r in rows if r.get('verdict')=='pass' and r.get('tokens_in',0)<0]; sys.exit(1 if bad else 0)\""
+          ]
+        }
       ]
     },
     {
       "id": "transcript-completeness",
       "prompt": "Create a file named transcript-check.txt in the repository root containing the text: complete. Use file_write with direct:true.",
       "timeout_seconds": 300,
-      "seeds": [1],
-      "tags": ["regression", "harness-integrity"],
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "harness-integrity"
+      ],
       "checkers": [
-        {"type": "file_contains", "files": ["transcript-check.txt"], "pattern": "complete"},
-        {"type": "exit_zero", "command": ["sh", "-c", "python3 -c \"import json,glob,os,sys; ms=glob.glob('/Users/caimlas/git/meept-bench/results/**/transcripts/*transcript-completeness*.json', recursive=True); t=json.load(open(max(ms, key=os.path.getmtime))); sys.exit(0 if t.get('final_reply') and t.get('prompt') else 1)\""]}
+        {
+          "type": "file_contains",
+          "files": [
+            "transcript-check.txt"
+          ],
+          "pattern": "complete"
+        },
+        {
+          "type": "exit_zero",
+          "command": [
+            "sh",
+            "-c",
+            "python3 -c \"import json,glob,os,sys; ms=glob.glob('/Users/caimlas/git/meept-bench/results/**/transcripts/*transcript-completeness*.json', recursive=True); t=json.load(open(max(ms, key=os.path.getmtime))); sys.exit(0 if t.get('final_reply') and t.get('prompt') else 1)\""
+          ]
+        }
       ]
     },
     {
       "id": "memory-recall-marker",
       "prompt": "What is the deployment codeword I asked you to remember earlier? It starts with BENCH-. Search your memory for it, then write just the codeword to a file named mem-recall.txt in the repository root. If you cannot find the codeword in memory, write exactly MEMORY-UNAVAILABLE to that file instead. You must write the file either way. Use file_write with direct:true.",
       "timeout_seconds": 300,
-      "seeds": [1],
-      "tags": ["regression", "memory", "gap-12-session", "known-failure", "xfail: meept cross-conversation recall gap — daemon memory is global but the dispatcher only auto-injects memories with relevance_score > 0.3 and the FTS scores this marker fact at ~0.2, so fresh-conversation recall silently drops it; checker accepts codeword or explicit MEMORY-UNAVAILABLE admission"],
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "memory",
+        "gap-12-session",
+        "known-failure",
+        "xfail: meept cross-conversation recall gap \u2014 daemon memory is global but the dispatcher only auto-injects memories with relevance_score > 0.3 and the FTS scores this marker fact at ~0.2, so fresh-conversation recall silently drops it; checker accepts codeword or explicit MEMORY-UNAVAILABLE admission"
+      ],
       "checkers": [
-        {"type": "file_contains", "files": ["mem-recall.txt"], "pattern": "BENCH-7391|MEMORY-UNAVAILABLE"}
-      ]
+        {
+          "type": "file_contains",
+          "files": [
+            "mem-recall.txt"
+          ],
+          "pattern": "BENCH-7391|MEMORY-UNAVAILABLE"
+        }
+      ],
+      "expect_agent": "coder"
     }
   ]
 }

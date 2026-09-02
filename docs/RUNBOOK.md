@@ -128,6 +128,18 @@ Never edit the baseline to make a red gate green — see *Flake policy* below.
 
 ## Flake policy
 
+- A task failing <1 in 5 local runs = flaky: tag "flaky", keep in suite.
+- A task failing deterministically = real regression: diff gate fires; fix
+  meept or fix the task, never the baseline.
+- **Classifier capacity gate:** the daemon's `classifier` alias needs at
+  least one healthy candidate (local llama.cpp on 127.0.0.1:8080, agnes,
+  zai, or ollama). When ALL are dead/rate-limited, intent analysis fails,
+  dispatch falls to keyword heuristics, and any `expect_agent` assertion can
+  flip (writer/committer/image-gen misroutes). Symptom in results:
+  `routing mismatch: expect_agent=coder routed=<other>` across unrelated
+  tasks in one run. Remedy: start the local runtime or free up a provider,
+  then re-run — the suite itself is correct.
+
 A gate nobody has tested failing is decoration — the injected-fault drill
 (clearing the committed baseline's `file-write-routes-coder` checker pattern,
 full suite run, `diff` exit 1, restore, clean re-verify) proves the gate has
