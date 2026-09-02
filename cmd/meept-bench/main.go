@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/bhodgens/meept-bench/internal/daemonclient"
+	"github.com/bhodgens/meept-bench/internal/diff"
 	"github.com/bhodgens/meept-bench/internal/runner"
 	"github.com/bhodgens/meept-bench/internal/scorecard"
 	"github.com/bhodgens/meept-bench/internal/suite"
@@ -32,6 +34,8 @@ func main() {
 		run(os.Args[2:])
 	case "scorecard":
 		scorecardCmd(os.Args[2:])
+	case "diff":
+		diffCmd(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -46,6 +50,8 @@ Usage:
   meept-bench doctor                        check daemon connectivity + worktree tooling
   meept-bench run --suite FILE [flags]      execute a suite manifest
   meept-bench scorecard RESULTS.jsonl       generate markdown+JSON scorecard
+  meept-bench diff --baseline FILE --current FILE
+                                            compare two results.jsonl runs
 
 Run flags:
   --suite FILE        suite manifest (required)
@@ -58,7 +64,12 @@ Run flags:
   --judge-cmd SPEC    external llm_judge command ("prog args...")
   --keep-failed       preserve failed-attempt worktrees for postmortems
   --rerun-failures    reserved: rerun only previously failed rows
-  --auto-approved     disclose that approval gates ran without a human present`)
+  --auto-approved     disclose that approval gates ran without a human present
+
+Diff flags:
+  --baseline FILE     baseline results.jsonl (required)
+  --current FILE      current results.jsonl (required)
+  --json              emit Summary as JSON instead of text`)
 }
 
 func doctor() {
@@ -171,6 +182,80 @@ func scorecardCmd(args []string) {
 		os.Exit(1)
 	}
 	fmt.Printf("scorecard: %s\n           %s\n", mdPath, jsonPath)
+}
+
+func diffCmd(args []string) {
+	fs := flag.NewFlagSet("diff", flag.ExitOnError)
+	baselinePath := fs.String("baseline", "", "baseline results.jsonl path (required)")
+	currentPath := fs.String("current", "", "current results.jsonl path (required)")
+	asJSON := fs.Bool("json", false, "emit Summary as JSON instead of text")
+	fs.Parse(args)
+
+	if *baselinePath == "" || *currentPath == "" {
+		fmt.Fprintln(os.Stderr, "diff: --baseline and --current are required")
+		os.Exit(2)
+	}
+	base, err := diff.LoadRows(*baselinePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "diff: %v\n", err)
+		os.Exit(2)
+	}
+	cur, err := diff.LoadRows(*currentPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "diff: %v\n", err)
+		os.Exit(2)
+	}
+
+	diffs := diff.Compare(base, cur)
+	sum := diff.Summarize(diffs)
+	if *asJSON {
+		data, err := json.MarshalIndent(sum, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "diff: %v\n", err)
+			os.Exit(2)
+		}
+		fmt.Println(string(data))
+	} else {
+		printDiffText(sum, diffs)
+	}
+	if len(sum.Regressed) > 0 {
+		os.Exit(1)
+	}
+}
+
+func printDiffText(sum diff.Summary, diffs []diff.TaskDiff) {
+	list := func(ids []string) string {
+		if len(ids) == 0 {
+			return "(none)"
+		}
+		return strings.Join(ids, " ")
+	}
+	byID := make(map[string]diff.TaskDiff, len(diffs))
+	for _, d := range diffs {
+		byID[d.TaskID] = d
+	}
+	fmt.Printf("REGRESSED (pass→fail): %s\n", list(sum.Regressed))
+	fmt.Printf("FIXED (fail→pass):     %s\n", list(sum.Fixed))
+	fmt.Printf("NEW:                   %s\n", list(sum.New))
+	fmt.Printf("REMOVED:               %s\n", list(sum.Removed))
+	if len(sum.WallRegressed) > 0 {
+		parts := make([]string, 0, len(sum.WallRegressed))
+		for _, id := range sum.WallRegressed {
+			d := byID[id]
+			parts = append(parts, fmt.Sprintf("%s (%.1fs → %.1fs)", id, d.BaselineWall, d.CurrentWall))
+		}
+		fmt.Printf("wall-time deltas > +50%%: %s\n", strings.Join(parts, " "))
+	}
+	// Cost deltas line only when at least one non-zero delta exists.
+	var costParts []string
+	for _, d := range diffs {
+		if d.CostDelta != 0 {
+			costParts = append(costParts, fmt.Sprintf("%s ($%.4f → $%.4f)", d.TaskID, d.BaselineCost, d.CurrentCost))
+		}
+	}
+	if len(costParts) > 0 {
+		fmt.Printf("cost deltas:           %s\n", strings.Join(costParts, " "))
+	}
 }
 
 func dirOf(path string) string {
