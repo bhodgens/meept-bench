@@ -1,0 +1,41 @@
+{
+  "suite": "regression-routing",
+  "description": "Regression tasks for meept dispatch/routing bugs. Pins gap-9 routing (create-a-file routed to chat, fixed 4f48e129), planner tool_hint=coder fall-through to chat (fixed a0939721), and direct-to-disk writes (staged writes never reach disk). No benchmark content, safe to commit and publish.",
+  "model": "",
+  "tasks": [
+    {
+      "id": "file-write-routes-coder",
+      "prompt": "Create a file named routing-check.txt in the repository root containing the text: dispatch works. Use file_write with direct:true.",
+      "expect_agent": "coder",
+      "timeout_seconds": 300,
+      "seeds": [1],
+      "tags": ["regression", "gap-9-routing", "4f48e129"],
+      "checkers": [
+        {"type": "file_contains", "files": ["routing-check.txt"], "pattern": "dispatch works"},
+        {"type": "exit_zero", "command": ["test", "-s", "routing-check.txt"]}
+      ]
+    },
+    {
+      "id": "tool-hint-coder-maps-coder",
+      "prompt": "Create a file named hint-check.txt in the repository root containing the text: hint ok. Use file_write with direct:true.",
+      "expect_agent": "coder",
+      "timeout_seconds": 300,
+      "seeds": [1],
+      "tags": ["regression", "a0939721", "tool-hint"],
+      "checkers": [
+        {"type": "file_contains", "files": ["hint-check.txt"], "pattern": "^hint ok$"}
+      ]
+    },
+    {
+      "id": "pending-write-direct",
+      "prompt": "Create a file named direct-check.txt in the repository root containing: written directly. Use file_write with direct:true.",
+      "expect_agent": "coder",
+      "timeout_seconds": 300,
+      "seeds": [1],
+      "tags": ["regression", "pending-writes", "01c4f38"],
+      "checkers": [
+        {"type": "file_contains", "files": ["direct-check.txt"], "pattern": "written directly"}
+      ]
+    }
+  ]
+}
