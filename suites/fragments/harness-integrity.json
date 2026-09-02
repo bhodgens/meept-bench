@@ -1,0 +1,43 @@
+{
+  "suite": "regression-harness",
+  "description": "Harness-integrity regression tasks (plan leaf 03). Pins the measurement infrastructure itself: bus-delivered tool_trace arrives in transcripts (meept a20b105c), per-row cost attribution stays sane (bench 01c4f38), and every transcript carries prompt + final_reply. A benchmark that cannot measure itself is worthless. No benchmark content, safe to commit and publish.",
+  "model": "",
+  "meta": {
+    "transcript_path_note": "internal/runner/runner.go writeTranscript writes transcripts to <outDir>/transcripts/<suite>-<task>-a<N>.json, where outDir is the run's --out flag or repo-relative 'results' when the bench runs from the repo root. exit_zero checkers execute in the per-task WORKTREE (checkers.go sets cmd.Dir=worktree), so relative paths cannot reach the transcripts, and --out varies between runs (CI, wave verification, local). The transcript probes therefore glob the absolute, recursive pattern /Users/caimlas/git/meept-bench/results/**/transcripts/<task-id>*.json and take the newest match by mtime, which is the transcript the current run just wrote regardless of --out. Verified empirically 2026-09-01 (results/transcripts/smoke-*.json default layout; wave runs use --out results/wave1-*)."
+  },
+  "tasks": [
+    {
+      "id": "bus-trace-arrives",
+      "prompt": "Create a file named probe-check.txt in the repository root containing the text: probed. Use file_write with direct:true.",
+      "timeout_seconds": 300,
+      "seeds": [1],
+      "tags": ["regression", "harness-integrity", "a20b105c"],
+      "checkers": [
+        {"type": "file_contains", "files": ["probe-check.txt"], "pattern": "probed"},
+        {"type": "exit_zero", "command": ["sh", "-c", "python3 -c \"import json,glob,os,sys; ms=glob.glob('/Users/caimlas/git/meept-bench/results/**/transcripts/*bus-trace-arrives*.json', recursive=True); t=json.load(open(max(ms, key=os.path.getmtime))); sys.exit(0 if len(t.get('tool_trace', []))>0 else 1)\" || (echo 'tool_trace empty or transcript missing - bus subscription regressed (a20b105c)'; exit 1)"]}
+      ]
+    },
+    {
+      "id": "harness-cost-row-present",
+      "prompt": "Create a file named cost-check.txt in the repository root containing the text: costed. Use file_write with direct:true.",
+      "timeout_seconds": 300,
+      "seeds": [1],
+      "tags": ["regression", "harness-integrity", "01c4f38"],
+      "checkers": [
+        {"type": "file_contains", "files": ["cost-check.txt"], "pattern": "costed"},
+        {"type": "exit_zero", "command": ["sh", "-c", "[ -f /Users/caimlas/git/meept-bench/results/regression/results.jsonl ] || exit 0; python3 -c \"import json,sys; rows=[json.loads(l) for l in open('/Users/caimlas/git/meept-bench/results/regression/results.jsonl') if l.strip()]; bad=[r for r in rows if r.get('verdict')=='pass' and r.get('tokens_in',0)<0]; sys.exit(1 if bad else 0)\""]}
+      ]
+    },
+    {
+      "id": "transcript-completeness",
+      "prompt": "Create a file named transcript-check.txt in the repository root containing the text: complete. Use file_write with direct:true.",
+      "timeout_seconds": 300,
+      "seeds": [1],
+      "tags": ["regression", "harness-integrity"],
+      "checkers": [
+        {"type": "file_contains", "files": ["transcript-check.txt"], "pattern": "complete"},
+        {"type": "exit_zero", "command": ["sh", "-c", "python3 -c \"import json,glob,os,sys; ms=glob.glob('/Users/caimlas/git/meept-bench/results/**/transcripts/*transcript-completeness*.json', recursive=True); t=json.load(open(max(ms, key=os.path.getmtime))); sys.exit(0 if t.get('final_reply') and t.get('prompt') else 1)\""]}
+      ]
+    }
+  ]
+}
