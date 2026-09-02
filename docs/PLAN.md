@@ -60,9 +60,9 @@ Status as of the phase-2 wave; claims limited to artifacts present in the tree a
 - **CI workflow**: `.github/workflows/bench.yml` — smoke job on every push to main; nightly job (cron 07:00 UTC) runs smoke + regression and diff-gates against the `bench-baselines` branch baseline; only green runs update the baseline (`scripts/update-baseline.sh` green gate).
 - **Docs**: `docs/RUNBOOK.md` — operator runbook for the gate.
 
-**In flight (not landed):**
+**Landed after status was written (same date):**
 
-- LongMemEval-S template + adapter (order 1 in the table above).
+- LongMemEval-S template + adapter (order 1 in the table above). MIT license-cleared, revision-pinned; adapter + 14 tests + tokenless 3-task template committed. Open items: operator-approved bulk-download probe on real data; template e2e blocked on meept classifier degradation (see memory-recall fragment finding 3).
 
 **Not started:**
 

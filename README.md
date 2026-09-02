@@ -9,7 +9,7 @@ The runner drives a live meept daemon end to end: suite manifest → per-task gi
 - **Regression gate live** — [suites/regression.json](suites/regression.json): 9 tasks, one per fixed meept bug, each tagged with its origin commit/gap (`4f48e129` routing, `a0939721` tool-hint, bus trace, session/workdir binding, cost rows). Green twice consecutively on the 8 non-known-failure tasks in local runs (`results/regression-run1`, `-run2`; run artifacts are gitignored, not committed — reproduce per [docs/RUNBOOK.md](docs/RUNBOOK.md)). `memory-recall-marker` stays red by design (`known-failure` tag): meept's cross-conversation recall gap.
 - **Scorecard diff** — `meept-bench diff --baseline --current`: best-attempt comparison across two runs, exit 1 on regression ([internal/diff](internal/diff)).
 - **CI** — [.github/workflows/bench.yml](.github/workflows/bench.yml): smoke suite on every push to main; nightly regression run + diff gate against the `bench-baselines` branch (only green runs update the baseline).
-- **In flight** — LongMemEval-S template + adapter (not landed yet).
+- **Landed** — LongMemEval-S template + adapter (MIT license-cleared; real-dataset fetch pending operator-approved bulk download; template e2e pending meept classifier recovery).
 
 ## Quick start
 
