@@ -1,0 +1,343 @@
+# meept-bench CI — leaf 05-ci-workflow (docs/plans/phase-2/05-ci-workflow.md)
+#
+# Two jobs:
+#   smoke   — on every push to main: build daemon+bench, run suites/smoke.json.
+#   nightly — cron 07:00 UTC (plus workflow_dispatch): smoke + suites/regression.json
+#             (when present), diff-gated against the last green baseline; on
+#             green, the new results become the baseline.
+#
+# Baseline strategy (branch approach, preferred per the leaf over cross-run
+# artifact download, which requires the exact run-id of the previous
+# successful nightly and is flaky):
+#   * scripts/update-baseline.sh force-pushes a GREEN nightly's results.jsonl
+#     to the `bench-baselines` branch as baselines/<suite>.jsonl.
+#   * Before the nightly bench, the workflow checks that branch out (if it
+#     exists) into ./baselines/ and diffs against it.
+#   * A RED nightly can never update the baseline: update-baseline.sh's green
+#     gate refuses non-pass verdicts, and the update step only runs
+#     `if: success()` (after the diff gate).
+#
+# Secrets: MEEPT_CI_PROVIDER_KEY — real zai provider API key. The daemon
+# expands ${MEEPT_CI_PROVIDER_KEY} at load/runtime (meept
+# internal/util/envexpand), so the key is ONLY present in the daemon process
+# environment — never in models.json5 on disk, logs, or artifacts. If the
+# secret is absent, jobs fail fast with a clear message.
+name: bench
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # 07:00 UTC daily — nightly full run with diff gate.
+    - cron: '0 7 * * *'
+  workflow_dispatch: {} # manual runs for testing
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Pin the meept daemon source ref; override via repo variable MEEPT_DAEMON_REF.
+  MEEPT_DAEMON_REF: ${{ vars.MEEPT_DAEMON_REF || 'main' }}
+  MEEPT_REPO_URL: https://github.com/bhodgens/meept.git
+  GO_VERSION: '1.24' # keep in sync with go.mod
+  SOCKET: /tmp/meept.sock
+  DAEMON_DATA: /tmp/meept-data
+  SCRATCH: ${{ github.workspace }}/.meept-bench-ci
+  # Disclosure for auto-approval (GAPS.md gap 6): result rows record
+  # auto_approved; this env var surfaces it in run logs too.
+  AUTO_APPROVED: '1'
+
+jobs:
+  smoke:
+    name: bench smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Check for provider secret (fail fast)
+        env:
+          KEY: ${{ secrets.MEEPT_CI_PROVIDER_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::MEEPT_CI_PROVIDER_KEY is not configured." >&2
+            echo "Add it under Settings -> Secrets and variables -> Actions." >&2
+            exit 1
+          fi
+          echo "secret present (length ${#KEY}) — not echoed"
+
+      - name: Clone meept at $MEEPT_DAEMON_REF
+        run: git clone --depth 1 --branch "$MEEPT_DAEMON_REF" "$MEEPT_REPO_URL" "$HOME/meept"
+
+      - name: Build meept-daemon
+        run: |
+          cd "$HOME/meept"
+          go build -o ./bin/meept-daemon ./cmd/meept-daemon
+
+      - name: Build bench
+        run: go build -o ./meept-bench ./cmd/meept-bench
+
+      - name: Write minimal models.json5 (key referenced via env placeholder)
+        run: |
+          # The daemon expands ${MEEPT_CI_PROVIDER_KEY} from its own process
+          # environment (meept internal/util/envexpand), so the raw secret
+          # never appears in this file on disk or in any log.
+          mkdir -p "$HOME/.meept"
+          cat > "$HOME/.meept/models.json5" <<'EOF'
+          {
+            "model": "zai/glm-4.5-air",
+            "model_aliases": {
+              "coder": { "models": ["zai/glm-4.5-air"], "timeout": 300, "max_fails": 3 }
+            },
+            "default_timeout": 3000,
+            "providers": {
+              "zai": {
+                "api": "openai",
+                "options": {
+                  "baseURL": "https://api.z.ai/api/coding/paas/v4",
+                  "apiKey": "${MEEPT_CI_PROVIDER_KEY}"
+                },
+                "models": {
+                  "glm-4.5-air": {
+                    "name": "glm-4.5-air",
+                    "capabilities": ["completion", "code", "reasoning"],
+                    "input_cost": 0.0,
+                    "output_cost": 0.0,
+                    "context_limit": 32000,
+                    "max_output": 4096,
+                    "temperature": 0.7
+                  }
+                }
+              }
+            }
+          }
+          EOF
+
+      - name: Start daemon
+        env:
+          MEEPT_CI_PROVIDER_KEY: ${{ secrets.MEEPT_CI_PROVIDER_KEY }}
+        run: |
+          mkdir -p "$DAEMON_DATA" "$SCRATCH"
+          nohup "$HOME/meept/bin/meept-daemon" \
+            -s "$SOCKET" -d "$DAEMON_DATA" -f \
+            > "$HOME/daemon.log" 2>&1 &
+          echo $! > "$HOME/daemon.pid"
+          echo "daemon pid $(cat "$HOME/daemon.pid")"
+
+      - name: Wait for daemon socket
+        run: |
+          chmod +x scripts/wait-for-daemon.sh
+          ./scripts/wait-for-daemon.sh "$SOCKET" 30
+
+      - name: Bench doctor
+        run: |
+          export MEEPT_BENCH_SOCKET="$SOCKET"
+          ./meept-bench doctor
+
+      - name: Run smoke suite
+        run: |
+          export MEEPT_BENCH_SOCKET="$SOCKET"
+          ./meept-bench run \
+            --suite suites/smoke.json \
+            --attempts 1 \
+            --scratch "$SCRATCH" \
+            --auto-approved
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.run_id }}
+          path: results/
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Print daemon log on failure
+        if: failure()
+        run: |
+          echo "--- daemon.log (last 100 lines) ---"
+          tail -n 100 "$HOME/daemon.log" || true
+
+  nightly:
+    name: bench nightly (full + diff gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for provider secret (fail fast)
+        env:
+          KEY: ${{ secrets.MEEPT_CI_PROVIDER_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::MEEPT_CI_PROVIDER_KEY is not configured." >&2
+            echo "Add it under Settings -> Secrets and variables -> Actions." >&2
+            exit 1
+          fi
+          echo "secret present (length ${#KEY}) — not echoed"
+
+      - name: Clone meept at $MEEPT_DAEMON_REF
+        run: git clone --depth 1 --branch "$MEEPT_DAEMON_REF" "$MEEPT_REPO_URL" "$HOME/meept"
+
+      - name: Build meept-daemon
+        run: |
+          cd "$HOME/meept"
+          go build -o ./bin/meept-daemon ./cmd/meept-daemon
+
+      - name: Build bench
+        run: go build -o ./meept-bench ./cmd/meept-bench
+
+      - name: Write minimal models.json5 (key referenced via env placeholder)
+        run: |
+          # Same placeholder approach as the smoke job — the raw secret stays
+          # out of the file; the daemon expands it from its own environment.
+          mkdir -p "$HOME/.meept"
+          cat > "$HOME/.meept/models.json5" <<'EOF'
+          {
+            "model": "zai/glm-4.5-air",
+            "model_aliases": {
+              "coder": { "models": ["zai/glm-4.5-air"], "timeout": 300, "max_fails": 3 }
+            },
+            "default_timeout": 3000,
+            "providers": {
+              "zai": {
+                "api": "openai",
+                "options": {
+                  "baseURL": "https://api.z.ai/api/coding/paas/v4",
+                  "apiKey": "${MEEPT_CI_PROVIDER_KEY}"
+                },
+                "models": {
+                  "glm-4.5-air": {
+                    "name": "glm-4.5-air",
+                    "capabilities": ["completion", "code", "reasoning"],
+                    "input_cost": 0.0,
+                    "output_cost": 0.0,
+                    "context_limit": 32000,
+                    "max_output": 4096,
+                    "temperature": 0.7
+                  }
+                }
+              }
+            }
+          }
+          EOF
+
+      - name: Start daemon
+        env:
+          MEEPT_CI_PROVIDER_KEY: ${{ secrets.MEEPT_CI_PROVIDER_KEY }}
+        run: |
+          mkdir -p "$DAEMON_DATA" "$SCRATCH"
+          nohup "$HOME/meept/bin/meept-daemon" \
+            -s "$SOCKET" -d "$DAEMON_DATA" -f \
+            > "$HOME/daemon.log" 2>&1 &
+          echo $! > "$HOME/daemon.pid"
+          echo "daemon pid $(cat "$HOME/daemon.pid")"
+
+      - name: Wait for daemon socket
+        run: |
+          chmod +x scripts/wait-for-daemon.sh
+          ./scripts/wait-for-daemon.sh "$SOCKET" 30
+
+      - name: Restore baseline branch (if present)
+        run: |
+          # Branch approach (preferred per the leaf over cross-run artifact
+          # download, which needs the exact previous run-id and is flaky).
+          if git ls-remote --exit-code --heads origin bench-baselines >/dev/null 2>&1; then
+            git fetch --depth 1 origin bench-baselines:refs/remotes/origin/bench-baselines
+            if git checkout refs/remotes/origin/bench-baselines -- baselines/ 2>/dev/null; then
+              echo "baseline restored:"
+              ls -la baselines/
+            else
+              echo "bench-baselines branch exists but has no baselines/ dir yet"
+            fi
+          else
+            echo "no bench-baselines branch yet — first green nightly will create it"
+          fi
+
+      - name: Run smoke suite (nightly re-check)
+        run: |
+          export MEEPT_BENCH_SOCKET="$SOCKET"
+          ./meept-bench run \
+            --suite suites/smoke.json \
+            --attempts 1 \
+            --scratch "$SCRATCH" \
+            --auto-approved
+
+      - name: Run regression suite
+        if: ${{ hashFiles('suites/regression.json') != '' }}
+        run: |
+          export MEEPT_BENCH_SOCKET="$SOCKET"
+          ./meept-bench run \
+            --suite suites/regression.json \
+            --attempts 1 \
+            --scratch "$SCRATCH" \
+            --auto-approved
+
+      - name: Diff gate vs baseline
+        if: ${{ hashFiles('suites/regression.json') != '' }}
+        run: |
+          BASELINE=baselines/regression.jsonl
+          CURRENT=results/regression/results.jsonl
+          if [ ! -f "$BASELINE" ]; then
+            echo "::warning::no baseline yet — skipping diff gate (this run establishes it)"
+            exit 0
+          fi
+          if [ ! -f "$CURRENT" ]; then
+            echo "::error::no current results at $CURRENT — regression run produced nothing" >&2
+            exit 1
+          fi
+          set +e
+          ./meept-bench diff --baseline "$BASELINE" --current "$CURRENT" | tee diff-gate.txt
+          status=${PIPESTATUS[0]}
+          set -e
+          case $status in
+            0) echo "diff gate: PASS" ;;
+            1)
+              {
+                echo "## Bench regression vs baseline"
+                echo
+                echo '```'
+                cat diff-gate.txt
+                echo '```'
+              } >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::diff gate FAILED (exit 1) — regressions detected" >&2
+              exit 1
+              ;;
+            *)
+              echo "::error::diff gate errored (exit $status)" >&2
+              exit "$status"
+              ;;
+          esac
+
+      - name: Update baseline (green runs only)
+        if: success() && hashFiles('results/regression/results.jsonl') != ''
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          chmod +x scripts/update-baseline.sh
+          ./scripts/update-baseline.sh results/regression/results.jsonl
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-${{ github.run_id }}
+          path: results/
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Print daemon log on failure
+        if: failure()
+        run: |
+          echo "--- daemon.log (last 100 lines) ---"
+          tail -n 100 "$HOME/daemon.log" || true
