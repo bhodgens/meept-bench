@@ -1,0 +1,84 @@
+{
+  "suite": "longmemeval-s",
+  "internal": true,
+  "hf_revision": "TEMPLATE",
+  "tasks": [
+    {
+      "id": "lmeval-s-000-b662573836036332",
+      "prompt": "Create a file named answer.txt in the repository root containing the answer to the question below. Use file_write with the direct:true argument so the file is written to disk immediately.\n\nFirst, read these session log files (they contain the user's past conversation history):\n  suites/lmeval-data-template/lmeval-s-000-b662573836036332/session-1.txt\n  suites/lmeval-data-template/lmeval-s-000-b662573836036332/session-2.txt\n\nQuestion: What minimum auto-approve budget did Marco ask me to set for the warehouse reorder tool?\n\nWrite only the answer into answer.txt, as short and direct as possible — usually a name, date, number, or short phrase.",
+      "checkers": [
+        {
+          "type": "file_contains",
+          "pattern": "350",
+          "files": [
+            "answer.txt"
+          ]
+        }
+      ],
+      "timeout_seconds": 900,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "lmeval",
+        "split:s",
+        "lmeval-rev:TEMPLATE"
+      ],
+      "expect_agent": "coder"
+    },
+    {
+      "id": "lmeval-s-001-e4e791218a09b821",
+      "prompt": "Create a file named answer.txt in the repository root containing the answer to the question below. Use file_write with the direct:true argument so the file is written to disk immediately.\n\nFirst, read these session log files (they contain the user's past conversation history):\n  suites/lmeval-data-template/lmeval-s-001-e4e791218a09b821/session-1.txt\n  suites/lmeval-data-template/lmeval-s-001-e4e791218a09b821/session-2.txt\n  suites/lmeval-data-template/lmeval-s-001-e4e791218a09b821/session-3.txt\n\nQuestion: Which room did I book for the standing weekly review with the platform group?\n\nWrite only the answer into answer.txt, as short and direct as possible — usually a name, date, number, or short phrase.",
+      "checkers": [
+        {
+          "type": "file_contains",
+          "pattern": "Mistral Room",
+          "files": [
+            "answer.txt"
+          ]
+        }
+      ],
+      "timeout_seconds": 900,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "lmeval",
+        "split:s",
+        "lmeval-rev:TEMPLATE"
+      ],
+      "expect_agent": "coder"
+    },
+    {
+      "id": "lmeval-s-002-5371c58f5f8dd72e",
+      "prompt": "Create a file named answer.txt in the repository root containing the answer to the question below. Use file_write with the direct:true argument so the file is written to disk immediately.\n\nFirst, read these session log files (they contain the user's past conversation history):\n  suites/lmeval-data-template/lmeval-s-002-5371c58f5f8dd72e/session-1.txt\n  suites/lmeval-data-template/lmeval-s-002-5371c58f5f8dd72e/session-2.txt\n\nQuestion: What working arrangement did Marco request for the autumn, and where does the standing weekly review take place?\n\nWrite only the answer into answer.txt, as short and direct as possible — usually a name, date, number, or short phrase.",
+      "checkers": [
+        {
+          "type": "file_contains",
+          "files": [
+            "answer.txt"
+          ],
+          "pattern": "Mistral Room"
+        }
+      ],
+      "timeout_seconds": 900,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "lmeval",
+        "split:s",
+        "lmeval-rev:TEMPLATE"
+      ],
+      "expect_agent": "coder"
+    }
+  ],
+  "meta": {
+    "adapter_seed": "0",
+    "dataset_id": "xiaowu0162/longmemeval",
+    "generation": "adapter",
+    "license": "MIT",
+    "mode": "context",
+    "source_split": "S"
+  }
+}

@@ -7,3 +7,6 @@
 !results/baseline/**
 suites/cache/
 *.local.json
+# LongMemEval adapter outputs (generated at run time from HF; never committed)
+suites/longmemeval-s.generated.json
+suites/lmeval-data/

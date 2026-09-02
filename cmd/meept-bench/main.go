@@ -17,6 +17,7 @@ import (
 	"github.com/bhodgens/meept-bench/internal/runner"
 	"github.com/bhodgens/meept-bench/internal/scorecard"
 	"github.com/bhodgens/meept-bench/internal/suite"
+	"github.com/bhodgens/meept-bench/internal/suites/lmeval"
 	"github.com/bhodgens/meept-bench/internal/version"
 )
 
@@ -36,6 +37,8 @@ func main() {
 		scorecardCmd(os.Args[2:])
 	case "diff":
 		diffCmd(os.Args[2:])
+	case "lmeval":
+		lmevalCmd(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -52,6 +55,7 @@ Usage:
   meept-bench scorecard RESULTS.jsonl       generate markdown+JSON scorecard
   meept-bench diff --baseline FILE --current FILE
                                             compare two results.jsonl runs
+  meept-bench lmeval --config FILE          generate the LongMemEval suite
 
 Run flags:
   --suite FILE        suite manifest (required)
@@ -263,4 +267,62 @@ func dirOf(path string) string {
 		return d
 	}
 	return "."
+}
+
+func lmevalCmd(args []string) {
+	fs := flag.NewFlagSet("lmeval", flag.ExitOnError)
+	configPath := fs.String("config", "", "adapter config JSON (see docs/LONGMEMEVAL.md)")
+	dataDir := fs.String("data-dir", "suites/lmeval-data", "generated haystack data dir (gitignored)")
+	out := fs.String("out", "suites/longmemeval-s.generated.json", "generated suite manifest path (gitignored)")
+	fs.Parse(args)
+
+	if *configPath == "" {
+		fmt.Fprintln(os.Stderr, "lmeval: --config is required")
+		os.Exit(2)
+	}
+	data, err := os.ReadFile(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "lmeval: %v\n", err)
+		os.Exit(1)
+	}
+	var cfg lmeval.Config
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "lmeval: parse %s: %v\n", *configPath, err)
+		os.Exit(1)
+	}
+	if cfg.DatasetID == "" {
+		cfg.DatasetID = lmeval.DefaultDatasetID
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	fmt.Printf("lmeval: fetching %s split=%s limit=%d mode=%s method=%s\n",
+		cfg.DatasetID, cfg.Split, cfg.Limit, cfg.Mode, cfg.Method)
+	items, rev, err := cfg.FetchResolved(ctx, nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "lmeval: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("lmeval: fetched %d item(s), revision %s\n", len(items), rev)
+
+	m, absData, err := lmeval.EmitResolved(cfg, rev, items, *dataDir)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "lmeval: %v\n", err)
+		os.Exit(1)
+	}
+	if err := writeManifestIndented(*out, m); err != nil {
+		fmt.Fprintf(os.Stderr, "lmeval: write %s: %v\n", *out, err)
+		os.Exit(1)
+	}
+	fmt.Printf("lmeval: wrote %s (%d tasks) + data in %s\n", *out, len(m.Tasks), absData)
+	fmt.Printf("run it:\n  meept-bench run --suite %s\n", *out)
+}
+
+func writeManifestIndented(path string, m *suite.Manifest) error {
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(data, '\n'), 0o644)
 }

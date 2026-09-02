@@ -1,0 +1,4 @@
+user: Marco pinged me about the autumn staffing plan.
+assistant: What arrangement did he settle on?
+user: He wants hybrid: three days remote from Monday to Wednesday, and two days onsite.
+assistant: Hybrid: Monday-to-Wednesday remote, the rest onsite.

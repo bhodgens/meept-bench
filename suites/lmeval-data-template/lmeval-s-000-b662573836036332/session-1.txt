@@ -1,0 +1,3 @@
+user: Hey, do you remember which heating protocol we picked for the basement lab?
+assistant: You settled on the low-dryness schedule, same as the greenhouse.
+user: Right. And thanks for reordering the teal labels last week.

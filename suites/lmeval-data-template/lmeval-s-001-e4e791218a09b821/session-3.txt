@@ -1,0 +1,2 @@
+user: For the platform group: the standing weekly review is booked in the Mistral Room.
+assistant: Recorded — standing weekly review happens in the Mistral Room.

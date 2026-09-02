@@ -1,0 +1,2 @@
+user: Room booking confirmed: the standing weekly review for the platform group is in the Mistral Room.
+assistant: Noted — weekly review, Mistral Room.

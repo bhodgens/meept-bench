@@ -1,0 +1,2 @@
+user: The Tuesday architecture sync moved to the Falcon Room this quarter.
+assistant: Noted: Tuesday architecture sync, Falcon Room.
