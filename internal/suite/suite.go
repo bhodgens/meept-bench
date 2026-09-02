@@ -22,18 +22,18 @@ type Manifest struct {
 
 // Task is one benchmark item.
 type Task struct {
-	ID        string   `json:"id"`
-	Prompt    string   `json:"prompt"`
-	Checkers  []Check  `json:"checkers"`
-	MaxTurns  int      `json:"max_turns,omitempty"` // reserved for multi-turn suites
-	TimeoutS  int      `json:"timeout_seconds,omitempty"`
-	Seeds     []int64  `json:"seeds,omitempty"`
-	Tags      []string `json:"tags,omitempty"`
+	ID       string   `json:"id"`
+	Prompt   string   `json:"prompt"`
+	Checkers []Check  `json:"checkers"`
+	MaxTurns int      `json:"max_turns,omitempty"` // reserved for multi-turn suites
+	TimeoutS int      `json:"timeout_seconds,omitempty"`
+	Seeds    []int64  `json:"seeds,omitempty"`
+	Tags     []string `json:"tags,omitempty"`
 	// ExpectAgent optionally asserts which meept agent the dispatcher should
 	// route this task to (e.g. "coder"). When set, the runner verifies the
 	// dispatched agent and fails the row on mismatch.
-	ExpectAgent string  `json:"expect_agent,omitempty"`
-	SessionID   string  `json:"-"`
+	ExpectAgent string `json:"expect_agent,omitempty"`
+	SessionID   string `json:"-"`
 }
 
 // Check is one checker invocation.

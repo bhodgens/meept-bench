@@ -62,9 +62,9 @@ func TestErrRow(t *testing.T) {
 
 func TestToInt(t *testing.T) {
 	cases := []struct {
-		name  string
-		in    any
-		want  int64
+		name   string
+		in     any
+		want   int64
 		wantOK bool
 	}{
 		{"float64", float64(42.0), 42, true},
@@ -90,9 +90,9 @@ func TestToInt(t *testing.T) {
 
 func TestToFloat(t *testing.T) {
 	cases := []struct {
-		name  string
-		in    any
-		want  float64
+		name   string
+		in     any
+		want   float64
 		wantOK bool
 	}{
 		{"float64", 1.25, 1.25, true},

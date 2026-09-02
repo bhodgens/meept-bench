@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-func unmarshal(b []byte, v any) error   { return json.Unmarshal(b, v) }
-func marshal(v any) ([]byte, error)     { return json.Marshal(v) }
+func unmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
+func marshal(v any) ([]byte, error)   { return json.Marshal(v) }
 
 func contextWithTimeout(d time.Duration) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), d)

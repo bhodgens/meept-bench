@@ -15,24 +15,24 @@ import (
 
 // Card is the aggregate view of one run.
 type Card struct {
-	Suite       string             `json:"suite"`
-	GeneratedAt time.Time          `json:"generated_at"`
-	Tasks       int                `json:"tasks"`
-	Attempts    int                `json:"attempts"`
-	Passes      int                `json:"passes"`
-	PassRate    float64            `json:"pass_rate"`
-	MeanCostUSD float64            `json:"mean_cost_usd"`
-	MeanSeconds float64            `json:"mean_wall_seconds"`
-	Failures    map[string]int     `json:"failure_taxonomy"` // error_kind → count
-	TaskRates   []TaskRate         `json:"task_rates"`
-	Label       string             `json:"label"` // always self-run per repo rules
+	Suite       string         `json:"suite"`
+	GeneratedAt time.Time      `json:"generated_at"`
+	Tasks       int            `json:"tasks"`
+	Attempts    int            `json:"attempts"`
+	Passes      int            `json:"passes"`
+	PassRate    float64        `json:"pass_rate"`
+	MeanCostUSD float64        `json:"mean_cost_usd"`
+	MeanSeconds float64        `json:"mean_wall_seconds"`
+	Failures    map[string]int `json:"failure_taxonomy"` // error_kind → count
+	TaskRates   []TaskRate     `json:"task_rates"`
+	Label       string         `json:"label"` // always self-run per repo rules
 }
 
 // TaskRate is per-task rollup.
 type TaskRate struct {
-	TaskID  string  `json:"task_id"`
-	PassPct float64 `json:"pass_pct"`
-	N       int     `json:"n"`
+	TaskID   string  `json:"task_id"`
+	PassPct  float64 `json:"pass_pct"`
+	N        int     `json:"n"`
 	MeanCost float64 `json:"mean_cost_usd"`
 }
 
@@ -84,7 +84,10 @@ func Build(suiteName string, rows []results.Row) (*Card, error) {
 		Attempts: len(rows), Label: "self-run",
 		Failures: map[string]int{},
 	}
-	type agg struct{ n, pass int; cost float64 }
+	type agg struct {
+		n, pass int
+		cost    float64
+	}
 	byTask := map[string]*agg{}
 	var totalCost, totalWall float64
 	taskOrder := []string{}
