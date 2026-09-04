@@ -127,18 +127,37 @@ func (t *Task) Timeout() time.Duration {
 	return time.Duration(t.TimeoutS) * time.Second
 }
 
-// Select filters tasks by ID substring (empty filter = all).
-func (m *Manifest) Select(filter string) []Task {
-	if filter == "" {
-		return m.Tasks
+// Select filters tasks by ID substring (empty filter = all) and excludes any
+// task that carries at least one of ignoreTags (exact tag match). Flaky or
+// known-failure tasks can thereby be dropped per run without editing the
+// manifest, e.g. --ignore-tags known-failure.
+func (m *Manifest) Select(filter string, ignoreTags []string) []Task {
+	ignored := make(map[string]struct{}, len(ignoreTags))
+	for _, tg := range ignoreTags {
+		if tg != "" {
+			ignored[tg] = struct{}{}
+		}
 	}
 	var out []Task
 	for _, t := range m.Tasks {
-		if contains(t.ID, filter) {
-			out = append(out, t)
+		if !contains(t.ID, filter) {
+			continue
 		}
+		if hasAnyTag(t.Tags, ignored) {
+			continue
+		}
+		out = append(out, t)
 	}
 	return out
+}
+
+func hasAnyTag(tags []string, ignored map[string]struct{}) bool {
+	for _, tg := range tags {
+		if _, bad := ignored[tg]; bad {
+			return true
+		}
+	}
+	return false
 }
 
 func contains(s, sub string) bool {

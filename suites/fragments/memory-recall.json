@@ -5,7 +5,7 @@
   "tasks": [
     {
       "id": "memory-store-marker",
-      "prompt": "I want you to remember an important fact in your long-term memory so it survives across conversations: the deployment codeword is BENCH-7391. Store this fact in your memory now. Then confirm the memory was stored by creating a file named mem-store.txt in the repository root containing exactly the word: stored. Use file_write with direct:true.",
+      "prompt": "Create a file named mem-store.txt in the repository root containing exactly the word: stored. Use file_write with direct:true. Also store this fact in your long-term memory so it survives across conversations: the deployment codeword is BENCH-7391.",
       "timeout_seconds": 300,
       "seeds": [
         1
@@ -28,7 +28,7 @@
     },
     {
       "id": "memory-recall-marker",
-      "prompt": "What is the deployment codeword I asked you to remember earlier? It starts with BENCH-. Search your memory for it, then write just the codeword to a file named mem-recall.txt in the repository root. If you cannot find the codeword in memory, write exactly MEMORY-UNAVAILABLE to that file instead. You must write the file either way. Use file_write with direct:true.",
+      "prompt": "Create a file named mem-recall.txt in the repository root. Use file_write with direct:true. The file must contain the deployment codeword I asked you to remember in an earlier conversation (it starts with BENCH-) — search your memory for it first. If you cannot find the codeword in memory, the file must contain exactly MEMORY-UNAVAILABLE instead. You must write the file either way.",
       "timeout_seconds": 300,
       "seeds": [
         1

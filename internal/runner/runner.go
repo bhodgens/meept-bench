@@ -27,7 +27,8 @@ type Options struct {
 	KeepFailed   bool
 	AutoApproved bool
 	RerunFailed  bool
-	OutDir       string // results/<suite>; created if empty
+	IgnoreTags   []string // tasks carrying ANY of these tags are excluded
+	OutDir       string   // results/<suite>; created if empty
 	Logf         func(format string, args ...any)
 }
 
@@ -79,7 +80,7 @@ func (r *Runner) RunSuite(ctx context.Context, m *suite.Manifest, filter string)
 		return "", nil, err
 	}
 
-	tasks := m.Select(filter)
+	tasks := m.Select(filter, r.opt.IgnoreTags)
 	rows := make([]results.Row, 0, len(tasks))
 	for _, t := range tasks {
 		for attempt := 1; attempt <= r.opt.Attempts; attempt++ {

@@ -66,6 +66,7 @@ Run flags:
   --scratch PATH      worktree scratch root (default /tmp/meept-bench)
   --out DIR           results output dir (default results/<suite>)
   --judge-cmd SPEC    external llm_judge command ("prog args...")
+  --ignore-tags TAGS  comma-separated tags; exclude tasks carrying ANY of them
   --keep-failed       preserve failed-attempt worktrees for postmortems
   --rerun-failures    reserved: rerun only previously failed rows
   --auto-approved     disclose that approval gates ran without a human present
@@ -106,6 +107,7 @@ func run(args []string) {
 	judgeCmd := fs.String("judge-cmd", os.Getenv("MEEPT_BENCH_JUDGE_CMD"), "external judge command")
 	keepFailed := fs.Bool("keep-failed", false, "preserve failed attempt worktrees")
 	autoApproved := fs.Bool("auto-approved", false, "disclose auto-approval mode")
+	ignoreTags := fs.String("ignore-tags", "", "comma-separated tags; tasks with ANY of these tags are excluded")
 	fs.Parse(args)
 
 	if *suitePath == "" {
@@ -129,6 +131,7 @@ func run(args []string) {
 		JudgeCmd:     *judgeCmd,
 		KeepFailed:   *keepFailed,
 		AutoApproved: *autoApproved,
+		IgnoreTags:   splitTags(*ignoreTags),
 		OutDir:       *out,
 		Logf:         func(f string, a ...any) { fmt.Printf(f+"\n", a...) },
 	})
@@ -267,6 +270,18 @@ func dirOf(path string) string {
 		return d
 	}
 	return "."
+}
+
+// splitTags splits a comma-separated --ignore-tags value, dropping empties
+// so a trailing comma or "a,,b" doesn't create a bogus empty-tag match.
+func splitTags(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func lmevalCmd(args []string) {
