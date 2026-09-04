@@ -235,6 +235,17 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 		r.opt.Logf("warning: dispatch trace unavailable (%v); routing not asserted", agentErr)
 	}
 	transcript.RoutedAgent = routed
+	// Classification-method provenance for the same dispatch decision:
+	// which classifier produced the routing (capability_matcher, llm,
+	// keyword, semantic, heuristic_fallback, …). Recorded for regression
+	// tracking across daemon upgrades; empty means unknown.
+	methodCtx, cancelMethod := context.WithTimeout(ctx, 5*time.Second)
+	method, methodErr := client.ClassificationMethod(methodCtx, conversationID)
+	cancelMethod()
+	if methodErr != nil && r.opt.Logf != nil {
+		r.opt.Logf("warning: classification method unavailable (%v)", methodErr)
+	}
+	transcript.ClassificationMethod = method
 	if t.ExpectAgent != "" && routed != "" && routed != t.ExpectAgent {
 		r.writeTranscript(name, transcript)
 		return r.finishErr(wt, row, m, t, attempt, "fail",

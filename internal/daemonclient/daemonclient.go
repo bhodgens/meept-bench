@@ -519,3 +519,45 @@ func (c *Client) DispatchedAgent(ctx context.Context, sessionOrConversationID st
 	}
 	return "", nil
 }
+
+// ClassificationMethod returns the classifier that produced the routing
+// decision for the most recent message in the given session/conversation,
+// by querying the same "session.dispatch_trace" RPC DispatchedAgent uses
+// (entry field "classifier_method": e.g. "capability_matcher", "llm",
+// "keyword", "semantic", "heuristic_fallback", "short_message_guard",
+// "llm_empty_fallback_chat", "fallback", "compound").
+//
+// Returns ("", nil) — not an error — when the dispatch trace is unavailable
+// or carries no method for the session; the runner records empty as
+// "classification method unknown".
+func (c *Client) ClassificationMethod(ctx context.Context, sessionOrConversationID string) (string, error) {
+	if sessionOrConversationID == "" {
+		return "", nil
+	}
+	var out struct {
+		Entries []struct {
+			ClassifierMethod string `json:"classifier_method"`
+			Error            string `json:"error"`
+		} `json:"entries"`
+	}
+	err := c.Call(ctx, "session.dispatch_trace", map[string]any{
+		"session_id": sessionOrConversationID,
+		"limit":      1,
+	}, &out)
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+			return "", err
+		}
+		// Unknown-method / unavailable store: treat as "no method info".
+		return "", nil
+	}
+	for _, e := range out.Entries {
+		if e.Error != "" {
+			continue // skip failed dispatches
+		}
+		if e.ClassifierMethod != "" {
+			return e.ClassifierMethod, nil
+		}
+	}
+	return "", nil
+}

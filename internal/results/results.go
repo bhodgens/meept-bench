@@ -31,17 +31,18 @@ type Row struct {
 
 // Transcript is the captured agent interaction for one attempt.
 type Transcript struct {
-	Suite       string      `json:"suite"`
-	TaskID      string      `json:"task_id"`
-	Attempt     int         `json:"attempt"`
-	Seed        int64       `json:"seed"`
-	Prompt      string      `json:"prompt"`
-	FinalReply  string      `json:"final_reply"`
-	RoutedAgent string      `json:"routed_agent,omitempty"`
-	Error       string      `json:"error,omitempty"`
-	ToolTrace   []ToolEvent `json:"tool_trace,omitempty"`
-	StartedAt   time.Time   `json:"started_at"`
-	EndedAt     time.Time   `json:"ended_at"`
+	Suite                string      `json:"suite"`
+	TaskID               string      `json:"task_id"`
+	Attempt              int         `json:"attempt"`
+	Seed                 int64       `json:"seed"`
+	Prompt               string      `json:"prompt"`
+	FinalReply           string      `json:"final_reply"`
+	RoutedAgent          string      `json:"routed_agent,omitempty"`
+	ClassificationMethod string      `json:"classification_method,omitempty"`
+	Error                string      `json:"error,omitempty"`
+	ToolTrace            []ToolEvent `json:"tool_trace,omitempty"`
+	StartedAt            time.Time   `json:"started_at"`
+	EndedAt              time.Time   `json:"ended_at"`
 }
 
 // ToolEvent is one tool.execution.progress event distilled from the bus.
