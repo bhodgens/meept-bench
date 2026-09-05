@@ -81,6 +81,17 @@ func New(path string) *Client { return &Client{path: path} }
 // NewDefault creates a client for the default socket.
 func NewDefault() *Client { return New(DefaultSocketPath()) }
 
+// Fork returns a new Client over a separate connection to the same socket.
+// meept-bench serializes RPCs per connection (see the Client doc comment), so
+// a concurrent steering call would otherwise queue behind an in-flight Chat
+// that holds the connection mutex for the whole agent round-trip. A forked
+// client lets follow-up RPCs land while the primary chat is still being
+// awaited. The returned client has its own connection lifecycle; Close it
+// independently.
+func (c *Client) Fork() *Client {
+	return New(c.path)
+}
+
 // Path returns the configured socket path.
 func (c *Client) Path() string { return c.path }
 
@@ -560,4 +571,58 @@ func (c *Client) ClassificationMethod(ctx context.Context, sessionOrConversation
 		}
 	}
 	return "", nil
+}
+
+// --- Steering / follow-up queue ---
+
+// steerParams matches meept's chat.steer / chat.followup request schema
+// (internal/rpc/queue.go QueueHandler).
+type steerParams struct {
+	Message        string `json:"message"`
+	ConversationID string `json:"conversation_id"`
+	Source         string `json:"source,omitempty"`
+}
+
+// Steer injects a steering message into the daemon's steering queue for the
+// conversation. Steering messages interrupt the agent's current flow: the
+// loop drains at most one steering message per iteration and injects it into
+// the model context mid-run. Returns an error when no active queue exists
+// for the conversation (agent idle / queue already closed).
+func (c *Client) Steer(ctx context.Context, conversationID, message string) error {
+	var out map[string]any
+	return c.Call(ctx, "chat.steer", steerParams{
+		Message:        message,
+		ConversationID: conversationID,
+		Source:         "meept-bench",
+	}, &out)
+}
+
+// FollowUp injects a follow-up message into the daemon's follow-up queue for
+// the conversation. Follow-ups wait for the agent to reach a natural stopping
+// point and are then dispatched as the next user turn on the same
+// conversation. Returns an error when no active queue exists.
+func (c *Client) FollowUp(ctx context.Context, conversationID, message string) error {
+	var out map[string]any
+	return c.Call(ctx, "chat.followup", steerParams{
+		Message:        message,
+		ConversationID: conversationID,
+		Source:         "meept-bench",
+	}, &out)
+}
+
+// QueueStatus reports the steering/follow-up queue depths for a conversation
+// plus whether the queue is active. Useful for asserting that a steering
+// message was actually accepted (steering_depth > 0) before the agent drains
+// it.
+func (c *Client) QueueStatus(ctx context.Context, conversationID string) (steeringDepth, followUpDepth int, isActive bool, err error) {
+	var out struct {
+		SteeringDepth int    `json:"steering_depth"`
+		FollowUpDepth int    `json:"followup_depth"`
+		IsActive      bool   `json:"is_active"`
+		Generation    uint64 `json:"generation"`
+	}
+	err = c.Call(ctx, "chat.queue_status", map[string]any{
+		"conversation_id": conversationID,
+	}, &out)
+	return out.SteeringDepth, out.FollowUpDepth, out.IsActive, err
 }

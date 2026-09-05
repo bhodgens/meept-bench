@@ -39,6 +39,8 @@ func main() {
 		diffCmd(os.Args[2:])
 	case "lmeval":
 		lmevalCmd(os.Args[2:])
+	case "capture":
+		captureCmd(os.Args[2:])
 	default:
 		usage()
 		os.Exit(2)
@@ -56,6 +58,8 @@ Usage:
   meept-bench diff --baseline FILE --current FILE
                                             compare two results.jsonl runs
   meept-bench lmeval --config FILE          generate the LongMemEval suite
+  meept-bench capture --url URL [--out DIR] capture a live fetch into the
+                                            deterministic fixture cache
 
 Run flags:
   --suite FILE        suite manifest (required)

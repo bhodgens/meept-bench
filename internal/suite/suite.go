@@ -20,6 +20,17 @@ type Manifest struct {
 	Meta        map[string]string `json:"meta,omitempty"`
 }
 
+// Turn is one follow-up/steering message scheduled relative to the primary
+// prompt. Follow-ups exercise the daemon's steering path (chat.steer /
+// chat.followup) while the agent is still working on the primary turn.
+type Turn struct {
+	// DelayS is seconds to wait after the primary prompt is sent before
+	// delivering this message.
+	DelayS int `json:"delay_s,omitempty"`
+	// Message is the follow-up text sent on the same conversation.
+	Message string `json:"message"`
+}
+
 // Task is one benchmark item.
 type Task struct {
 	ID       string   `json:"id"`
@@ -29,11 +40,30 @@ type Task struct {
 	TimeoutS int      `json:"timeout_seconds,omitempty"`
 	Seeds    []int64  `json:"seeds,omitempty"`
 	Tags     []string `json:"tags,omitempty"`
+	// Turns schedules follow-up messages relative to the primary prompt.
+	// Each turn is delivered delay_s seconds after the primary chat goes
+	// out, on the same conversation ID. A turn sent while the agent is
+	// still working exercises the daemon's steering queue (chat.steer);
+	// one arriving after the reply exercises the follow-up path
+	// (chat.followup). The runner picks the path automatically.
+	Turns []Turn `json:"turns,omitempty"`
 	// ExpectAgent optionally asserts which meept agent the dispatcher should
 	// route this task to (e.g. "coder"). When set, the runner verifies the
 	// dispatched agent and fails the row on mismatch.
 	ExpectAgent string `json:"expect_agent,omitempty"`
-	SessionID   string `json:"-"`
+	// Tools opts into deterministic tool variants (phase-2-3 P2.3).
+	// CachedFetch requires the daemon's cached-fetch mode: web tools are
+	// served from the local fixture cache and a miss fails with an
+	// explicit "cache-miss" error, never the network. Capture fixtures
+	// with `meept-bench capture --url ...`.
+	Tools     *ToolsConfig `json:"tools,omitempty"`
+	SessionID string       `json:"-"`
+}
+
+// ToolsConfig declares per-task tool variants.
+type ToolsConfig struct {
+	// CachedFetch requires deterministic (cached-fetch) mode for this task.
+	CachedFetch bool `json:"cached_fetch,omitempty"`
 }
 
 // Check is one checker invocation.
@@ -83,6 +113,14 @@ func (m *Manifest) Validate() error {
 		}
 		if len(t.Checkers) == 0 {
 			return fmt.Errorf("task %s: at least one checker is required", t.ID)
+		}
+		for j, turn := range t.Turns {
+			if turn.Message == "" {
+				return fmt.Errorf("task %s turn[%d]: message is required", t.ID, j)
+			}
+			if turn.DelayS < 0 {
+				return fmt.Errorf("task %s turn[%d]: delay_s must be >= 0", t.ID, j)
+			}
 		}
 		for j, c := range t.Checkers {
 			switch c.Type {

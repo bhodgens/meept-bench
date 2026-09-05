@@ -1,0 +1,88 @@
+{
+  "suite": "steering",
+  "description": "P2.4 multi-turn steering probe. Exercises the daemon's steering/follow-up queues (chat.steer / chat.followup): mid-run corrections delivered while the agent is working, a follow-up question after the reply, and a no-turn control. Follow-up receipts are written to files because checkers inspect the worktree (the final reply text itself is only reachable via llm_judge, which needs an external judge command).",
+  "internal": false,
+  "model": "",
+  "tasks": [
+    {
+      "id": "steer-midrun-correction",
+      "prompt": "Create a file named result.txt in the repository root containing exactly the number 7 on a single line. Use file_write with direct:true so the file lands on disk immediately.",
+      "turns": [
+        {
+          "delay_s": 5,
+          "message": "Create a file named result2.txt in the repository root containing exactly the number 7 on a single line. Use file_write with direct:true so result2.txt lands on disk immediately. This replaces the earlier result.txt — after this, the only result file on disk must be result2.txt. Do not start new work beyond writing result2.txt."
+        }
+      ],
+      "timeout_seconds": 420,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "steering"
+      ],
+      "checkers": [
+        {
+          "type": "file_contains",
+          "files": [
+            "result2.txt"
+          ],
+          "pattern": "^7$"
+        }
+      ]
+    },
+    {
+      "id": "steer-followup-question",
+      "prompt": "Create a file named answer.txt in the repository root containing exactly the number 42 on a single line. Use file_write with direct:true.",
+      "turns": [
+        {
+          "delay_s": 5,
+          "message": "Follow-up question: what is the number in answer.txt? Reply with a line of the form MAGIC=<number>, and also write that same MAGIC=<number> line to a file named followup_receipt.txt in the repository root (file_write with direct:true)."
+        }
+      ],
+      "timeout_seconds": 420,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "steering"
+      ],
+      "checkers": [
+        {
+          "type": "file_contains",
+          "files": [
+            "answer.txt"
+          ],
+          "pattern": "^42$"
+        },
+        {
+          "type": "file_contains",
+          "files": [
+            "followup_receipt.txt"
+          ],
+          "pattern": "MAGIC=42"
+        }
+      ]
+    },
+    {
+      "id": "steer-control-single-turn",
+      "prompt": "Create a file named control.txt in the repository root containing exactly the word banana on a single line. Use file_write with direct:true.",
+      "timeout_seconds": 420,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "steering",
+        "control"
+      ],
+      "checkers": [
+        {
+          "type": "file_contains",
+          "files": [
+            "control.txt"
+          ],
+          "pattern": "^banana$"
+        }
+      ]
+    }
+  ]
+}

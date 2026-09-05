@@ -10,3 +10,7 @@ suites/cache/
 # LongMemEval adapter outputs (generated at run time from HF; never committed)
 suites/longmemeval-*.generated.json
 suites/lmeval-data/
+# Deterministic cached-fetch fixtures (captured live by `meept-bench
+# capture`, consumed by suites with tools.cached_fetch; machine-local
+# per phase-2-3 P2.3).
+/fixtures/

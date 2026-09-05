@@ -54,3 +54,23 @@ Verified against a live daemon during phase-1 bring-up:
     (`session.create` → `project.set` → conv-ID chat, commit `a76414a`);
     pinned by regression tasks tagged `gap-12-session` (`session-workdir-bound`,
     `memory-store-marker`, `memory-recall-marker`).
+
+## Steering over RPC (gap 5 closure — 2026-09-05)
+
+P2.4 steering probe (suites/steering.json, 7 runs) findings:
+
+1. **Harness complete**: chat.steer/chat.followup RPCs exist; runner
+   dispatches turns (RPC → thread-queue → chat fallback), awaits turn
+   completion via queue-quiet detection, records turn receipts.
+2. **Daemon-side reliability gap**: thread-turn execution is
+   environment-gated. With agnes quota parked loops, turns time out or
+   complete without acting (midrun-correction: attempt 1 pass, attempt 2
+   fail; control timeout at 420s). With quota headroom (run 9), turns
+   execute with tools end-to-end (followup receipt written, checker green).
+3. **Turn context**: steered turns need self-contained instructions —
+   anaphoric corrections ("name IT result2.txt") resolve unreliably in
+   the thread scope; explicit instructions ("Create result2.txt …
+   file_write direct:true") work.
+4. **Status**: steering suite tagged `steering`; not in the regression
+   gate until daemon turn-execution is reliable under quota pressure.
+   Re-verify after: agnes quota headroom OR deterministic local agent model.
