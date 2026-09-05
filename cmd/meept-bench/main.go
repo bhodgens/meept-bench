@@ -66,6 +66,8 @@ Run flags:
   --scratch PATH      worktree scratch root (default /tmp/meept-bench)
   --out DIR           results output dir (default results/<suite>)
   --judge-cmd SPEC    external llm_judge command ("prog args...")
+  --double-judge      judge twice; flag score disagreement in check detail
+                      (env: MEEPT_BENCH_DOUBLE_JUDGE)
   --ignore-tags TAGS  comma-separated tags; exclude tasks carrying ANY of them
   --keep-failed       preserve failed-attempt worktrees for postmortems
   --rerun-failures    reserved: rerun only previously failed rows
@@ -105,6 +107,7 @@ func run(args []string) {
 	scratch := fs.String("scratch", os.Getenv("HOME")+"/.meept-bench", "worktree scratch root (keep under ~ so daemon security allowlists like allowed_paths=[\"~/*\"] cover it)")
 	out := fs.String("out", "", "results output dir")
 	judgeCmd := fs.String("judge-cmd", os.Getenv("MEEPT_BENCH_JUDGE_CMD"), "external judge command")
+	doubleJudge := fs.Bool("double-judge", os.Getenv("MEEPT_BENCH_DOUBLE_JUDGE") != "", "run the judge twice and flag disagreement in check details (env: MEEPT_BENCH_DOUBLE_JUDGE)")
 	keepFailed := fs.Bool("keep-failed", false, "preserve failed attempt worktrees")
 	autoApproved := fs.Bool("auto-approved", false, "disclose auto-approval mode")
 	ignoreTags := fs.String("ignore-tags", "", "comma-separated tags; tasks with ANY of these tags are excluded")
@@ -129,6 +132,7 @@ func run(args []string) {
 		Attempts:     *attempts,
 		Model:        *model,
 		JudgeCmd:     *judgeCmd,
+		DoubleJudge:  *doubleJudge,
 		KeepFailed:   *keepFailed,
 		AutoApproved: *autoApproved,
 		IgnoreTags:   splitTags(*ignoreTags),

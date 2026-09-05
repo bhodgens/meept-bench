@@ -194,3 +194,17 @@ func TestOutDirOr(t *testing.T) {
 		t.Errorf("OutDir set outDirOr() = %q, want %q", got, "/x")
 	}
 }
+
+// TestRunCheckOptsDoubleJudge: Options.DoubleJudge feeds exactly one checker
+// RunOption; the default Options produce none. Option application itself is
+// covered by the checkers package tests.
+func TestRunCheckOptsDoubleJudge(t *testing.T) {
+	r := &Runner{opt: Options{}}
+	if got := r.runCheckOpts(); len(got) != 0 {
+		t.Fatalf("default options must produce no RunOptions, got %d", len(got))
+	}
+	r.opt.DoubleJudge = true
+	if got := r.runCheckOpts(); len(got) != 1 {
+		t.Fatalf("DoubleJudge must produce exactly one RunOption, got %d", len(got))
+	}
+}

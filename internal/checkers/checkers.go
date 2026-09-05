@@ -6,10 +6,13 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"regexp"
+	"strings"
 
 	"github.com/bhodgens/meept-bench/internal/suite"
 )
@@ -29,8 +32,27 @@ type Result struct {
 	Rationale string  `json:"rationale,omitempty"`
 }
 
+// RunOption customizes a Run call.
+type RunOption func(*runConfig)
+
+// runConfig holds per-Run options.
+type runConfig struct {
+	doubleJudge bool
+}
+
+// WithDoubleJudge runs the llm_judge backend twice and reports the mean
+// score, flagging disagreement beyond doubleJudgeTolerance in the Result
+// detail. Can also be enabled process-wide via MEEPT_BENCH_DOUBLE_JUDGE.
+func WithDoubleJudge() RunOption {
+	return func(rc *runConfig) { rc.doubleJudge = true }
+}
+
 // Run executes a checker against the task worktree.
-func Run(ctx context.Context, c suite.Check, worktree, finalAnswer string, judge Judge) Result {
+func Run(ctx context.Context, c suite.Check, worktree, finalAnswer string, judge Judge, opts ...RunOption) Result {
+	var rc runConfig
+	for _, o := range opts {
+		o(&rc)
+	}
 	var r Result
 	r.Check = c.Type
 	var err error
@@ -42,7 +64,7 @@ func Run(ctx context.Context, c suite.Check, worktree, finalAnswer string, judge
 	case "exit_zero":
 		r.Passed, r.Detail, err = exitZero(ctx, c, worktree)
 	case "llm_judge":
-		r.Score, r.Rationale, err = llmJudge(ctx, c, finalAnswer, judge)
+		r.Score, r.Rationale, r.Detail, err = llmJudge(ctx, c, finalAnswer, judge, rc.doubleJudge)
 		r.Passed = err == nil && r.Score >= minScore(c.MinScore)
 	default:
 		return Result{Check: c.Type, Passed: false, Detail: "unknown checker type"}
@@ -125,12 +147,80 @@ func exitZero(ctx context.Context, c suite.Check, wt string) (bool, string, erro
 	return true, detail, nil
 }
 
-func llmJudge(ctx context.Context, c suite.Check, answer string, judge Judge) (float64, string, error) {
+// doubleJudgeEnvEnv toggles double-judging process-wide (e.g.
+// MEEPT_BENCH_DOUBLE_JUDGE=1), complementing the per-call WithDoubleJudge.
+const doubleJudgeEnvEnv = "MEEPT_BENCH_DOUBLE_JUDGE"
+
+// doubleJudgeTolerance is the max |score1 - score2| treated as judge
+// agreement; beyond it the run is flagged as unreliable in the Result detail.
+const doubleJudgeTolerance = 0.2
+
+// llmJudge scores the final answer via the judge backend. With double-judge
+// enabled (WithDoubleJudge or MEEPT_BENCH_DOUBLE_JUDGE) it judges twice,
+// reports the mean score, and flags disagreement beyond
+// doubleJudgeTolerance in the detail so unreliable verdicts are visible.
+func llmJudge(ctx context.Context, c suite.Check, answer string, judge Judge, double bool) (float64, string, string, error) {
 	if judge == nil {
-		return 0, "", fmt.Errorf("no judge configured (set MEEPT_BENCH_JUDGE_CMD or --judge-cmd)")
+		return 0, "", "", fmt.Errorf("no judge configured (set MEEPT_BENCH_JUDGE_CMD or --judge-cmd)")
 	}
-	score, why, err := judge.Judge(ctx, c.Rubric, answer)
-	return score, why, err
+	// Rubric lint: refuse to run a judge that has already seen the answer
+	// it is supposed to be blind to.
+	if err := lintRubric(c.Rubric, checkExpected(c.Extra)); err != nil {
+		return 0, "", "", err
+	}
+
+	if !(double || envFlag(doubleJudgeEnvEnv)) {
+		score, why, err := judge.Judge(ctx, c.Rubric, answer)
+		return score, why, "", err
+	}
+
+	s1, why1, err1 := judge.Judge(ctx, c.Rubric, answer)
+	s2, why2, err2 := judge.Judge(ctx, c.Rubric, answer)
+	if err1 != nil || err2 != nil {
+		// Prefer surfacing the first error; keep the second as context.
+		if err1 == nil {
+			err1 = err2
+		}
+		return 0, "", fmt.Sprintf("judge attempt 2: %v", err2), err1
+	}
+	mean := math.Round((s1+s2)/2*10000) / 10000
+	detail := fmt.Sprintf("double-judge: scores %.2f/%.2f (mean %.2f)", s1, s2, mean)
+	if math.Abs(s1-s2) > doubleJudgeTolerance {
+		detail += fmt.Sprintf("; DISAGREEMENT >%.2f — verdict unreliable, inspect rationale", doubleJudgeTolerance)
+	}
+	// Keep the first rationale, note the second when it differs.
+	why := why1
+	if why2 != "" && why2 != why1 {
+		why = why1 + " | second judge: " + why2
+	}
+	return mean, why, detail, nil
+}
+
+// envFlag reads a boolean env var ("1", "true", "yes", "on", case-insensitive).
+func envFlag(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+// checkExpected extracts the optional literal expected answer from the
+// check's `extra` field ({"expected": "..."}), used only for rubric linting.
+// All decode failures degrade to "no expected" — never an error, so a
+// malformed extra field can't break an otherwise valid suite.
+func checkExpected(extra json.RawMessage) string {
+	if len(extra) == 0 {
+		return ""
+	}
+	var m struct {
+		Expected string `json:"expected"`
+	}
+	if err := json.Unmarshal(extra, &m); err != nil {
+		return ""
+	}
+	return m.Expected
 }
 
 func join(wt, p string) string {

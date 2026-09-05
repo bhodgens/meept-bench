@@ -24,6 +24,7 @@ type Options struct {
 	Attempts     int
 	Model        string // exercises meept model reassignment when set
 	JudgeCmd     string
+	DoubleJudge  bool // run llm_judge twice; flag disagreement in Result detail
 	KeepFailed   bool
 	AutoApproved bool
 	RerunFailed  bool
@@ -258,7 +259,7 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	passed := true
 	checkResults := make([]any, 0, len(t.Checkers))
 	for _, c := range t.Checkers {
-		res := checkers.Run(ctx, c, wt.Path, resp.Reply, r.judge)
+		res := checkers.Run(ctx, c, wt.Path, resp.Reply, r.judge, r.runCheckOpts()...)
 		checkResults = append(checkResults, res)
 		if !res.Passed {
 			passed = false
@@ -332,6 +333,15 @@ func (r *Runner) pickModel(m *suite.Manifest) string {
 		return r.opt.Model
 	}
 	return m.Model
+}
+
+// runCheckOpts builds the checker RunOptions from runner flags.
+func (r *Runner) runCheckOpts() []checkers.RunOption {
+	var opts []checkers.RunOption
+	if r.opt.DoubleJudge {
+		opts = append(opts, checkers.WithDoubleJudge())
+	}
+	return opts
 }
 
 func (r *Runner) finishErr(wt *isolate.Worktree, row *results.Row, m *suite.Manifest, t suite.Task, attempt int, kind, detail string) *results.Row {
