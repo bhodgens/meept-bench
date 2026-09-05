@@ -60,6 +60,30 @@ type Item struct {
 	AnswerSessionIDs []string `json:"answer_session_ids,omitempty"`
 }
 
+// UnmarshalJSON accepts the dataset's type drift: some revisions encode
+// `answer` as a number (e.g. "5" vs 5) or other scalars. Coerce anything
+// JSON-parseable into its string form; only true structural garbage fails.
+func (it *Item) UnmarshalJSON(data []byte) error {
+	type itemAlias Item // dodge recursive UnmarshalJSON
+	var raw struct {
+		itemAlias
+		Answer json.RawMessage `json:"answer"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*it = Item(raw.itemAlias)
+	if len(raw.Answer) > 0 {
+		var s string
+		if err := json.Unmarshal(raw.Answer, &s); err == nil {
+			it.Answer = s
+			return nil
+		}
+		it.Answer = string(raw.Answer) // numbers/bools: use literal form
+	}
+	return nil
+}
+
 // Fetch downloads the split from HuggingFace and returns the selected items.
 // No SDK dependency: Method "download" streams the split JSON array over the
 // resolve endpoint (early-closing the body once Limit items are read, so a

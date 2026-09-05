@@ -484,3 +484,23 @@ func TestSplitFileMapping(t *testing.T) {
 func compileRE(pat string) (interface{ MatchString(string) bool }, error) {
 	return regexp.Compile(pat)
 }
+
+// TestItemUnmarshalCoercesNumericAnswer pins the dataset type-drift fix:
+// some LongMemEval revisions encode `answer` as a JSON number (item 70 of
+// the S split aborted the full fetch with "cannot unmarshal number into Go
+// struct field Item.answer of type string").
+func TestItemUnmarshalCoercesNumericAnswer(t *testing.T) {
+	var it Item
+	if err := json.Unmarshal([]byte(`{"question_id":"q","question":"q?","answer":5}`), &it); err != nil {
+		t.Fatalf("numeric answer failed to decode: %v", err)
+	}
+	if it.Answer != "5" {
+		t.Errorf("Answer = %q, want %q", it.Answer, "5")
+	}
+	if err := json.Unmarshal([]byte(`{"question_id":"q","question":"q?","answer":"five"}`), &it); err != nil {
+		t.Fatalf("string answer failed to decode: %v", err)
+	}
+	if it.Answer != "five" {
+		t.Errorf("Answer = %q, want %q", it.Answer, "five")
+	}
+}
