@@ -80,7 +80,20 @@ def main() -> int:
     line = re.sub(r"\s+", " ", str(content)).strip()
     if not line:
         return fail("empty judge completion")
-    print(line)
+
+    # Normalize model output to the "<score 0..1> <rationale>" contract.
+    # Small models often wrap the score in tags ("<score>100</score>") or
+    # answer on a 0-100 scale; both break the downstream ParseFloat+clamp.
+    line = re.sub(r"</?\s*score\s*>", "", line, flags=re.IGNORECASE).strip()
+    m = re.match(r"^([0-9]+(?:\.[0-9]+)?)\s*(.*)$", line)
+    if not m:
+        return fail(f"cannot find score in judge output: {line!r}")
+    value = float(m.group(1))
+    rationale = m.group(2).strip()
+    if value > 1.0:  # 0-100 scale → 0-1
+        value = value / 100.0
+    value = min(1.0, max(0.0, value))
+    print(f"{value:.2f} {rationale}".rstrip())
     return 0
 
 
