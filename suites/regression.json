@@ -1,13 +1,13 @@
 {
   "suite": "regression",
-  "description": "Meept regression gate. One task per fixed bug (see tags for origin commits/gaps). Green twice consecutively = stable.",
+  "description": "Meept regression gate. One task per fixed bug (see tags for origin commits/gaps). Green twice consecutively = stable. Timeouts raised 300->600s (2026-09-17): async turns execute for real on the local 8B; a single multi-minute step exceeds the old 300s budget.",
   "model": "",
   "tasks": [
     {
       "id": "file-write-routes-coder",
       "prompt": "Create a file named routing-check.txt in the repository root containing the text: dispatch works. Use file_write with direct:true.",
       "expect_agent": "coder",
-      "timeout_seconds": 300,
+      "timeout_seconds": 600,
       "seeds": [
         1
       ],
@@ -38,7 +38,7 @@
       "id": "tool-hint-coder-maps-coder",
       "prompt": "Create a file named hint-check.txt in the repository root containing the text: hint ok. Use file_write with direct:true.",
       "expect_agent": "coder",
-      "timeout_seconds": 300,
+      "timeout_seconds": 600,
       "seeds": [
         1
       ],
@@ -61,7 +61,7 @@
       "id": "pending-write-direct",
       "prompt": "Create a file named direct-check.txt in the repository root containing: written directly. Use file_write with direct:true.",
       "expect_agent": "coder",
-      "timeout_seconds": 300,
+      "timeout_seconds": 600,
       "seeds": [
         1
       ],
@@ -83,7 +83,7 @@
     {
       "id": "memory-store-marker",
       "prompt": "Create a file named mem-store.txt in the repository root containing exactly the word: stored. Use file_write with direct:true. Also store this fact in your long-term memory so it survives across conversations: the deployment codeword is BENCH-7391.",
-      "timeout_seconds": 300,
+      "timeout_seconds": 600,
       "seeds": [
         1
       ],
@@ -106,7 +106,7 @@
     {
       "id": "session-workdir-bound",
       "prompt": "Create a file named cwd.txt in the repository root containing the absolute path of your current working directory (one line, just the path). Use file_write with direct:true.",
-      "timeout_seconds": 300,
+      "timeout_seconds": 600,
       "seeds": [
         1
       ],
@@ -136,7 +136,7 @@
     {
       "id": "bus-trace-arrives",
       "prompt": "Create a file named probe-check.txt in the repository root containing the text: probed. Use file_write with direct:true.",
-      "timeout_seconds": 300,
+      "timeout_seconds": 600,
       "seeds": [
         1
       ],
@@ -166,7 +166,7 @@
     {
       "id": "harness-cost-row-present",
       "prompt": "Create a file named cost-check.txt in the repository root containing the text: costed. Use file_write with direct:true.",
-      "timeout_seconds": 300,
+      "timeout_seconds": 600,
       "seeds": [
         1
       ],
@@ -196,7 +196,7 @@
     {
       "id": "transcript-completeness",
       "prompt": "Create a file named transcript-check.txt in the repository root containing the text: complete. Use file_write with direct:true.",
-      "timeout_seconds": 300,
+      "timeout_seconds": 600,
       "seeds": [
         1
       ],
@@ -224,8 +224,8 @@
     },
     {
       "id": "memory-recall-marker",
-      "prompt": "Create a file named mem-recall.txt in the repository root. Use file_write with direct:true. The file must contain the deployment codeword I asked you to remember in an earlier conversation (it starts with BENCH-) — search your memory for it first. If you cannot find the codeword in memory, the file must contain exactly MEMORY-UNAVAILABLE instead. You must write the file either way.",
-      "timeout_seconds": 300,
+      "prompt": "Create a file named mem-recall.txt in the repository root. Use file_write with direct:true. The file must contain the deployment codeword I asked you to remember in an earlier conversation (it starts with BENCH-) \u2014 search your memory for it first. If you cannot find the codeword in memory, the file must contain exactly MEMORY-UNAVAILABLE instead. You must write the file either way.",
+      "timeout_seconds": 600,
       "seeds": [
         1
       ],
