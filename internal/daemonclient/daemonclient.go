@@ -784,6 +784,14 @@ func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metri
 				if p.Status == "" {
 					continue // not a terminal event (defensive)
 				}
+				if p.Status == "parked" {
+					// Accepted-not-finished (async_dispatch ack): the
+					// work continues elsewhere; the real result arrives
+					// in a later event with this turn's id. Refresh the
+					// liveness window — progress happened.
+					waitStart = time.Now()
+					continue
+				}
 				if metrics != nil {
 					metrics.TurnSeconds = time.Since(start).Seconds() - metrics.AckSeconds
 				}
