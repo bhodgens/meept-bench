@@ -1,0 +1,79 @@
+{
+  "suite": "longmemeval-s",
+  "internal": true,
+  "hf_revision": "TEMPLATE",
+  "tasks": [
+    {
+      "id": "lmeval-s-000-b662573836036332",
+      "prompt": "Answer a question about a user's past conversation history.\n\nThe relevant session logs are saved at these locations:\n  lmeval-s-000-b662573836036332/session-1.txt\n  lmeval-s-000-b662573836036332/session-2.txt\n\nRead the session logs, find the information needed, and answer the question.\n\nQuestion: What minimum auto-approve budget did Marco ask me to set for the warehouse reorder tool?\n\nWrite your final answer to a file named answer.txt in the current working\ndirectory (repository root), containing only the answer. Keep the answer as\nshort and direct as possible — usually a name, date, number, or short phrase.\nUse file_write with the direct:true argument so the file is written to disk\nimmediately.",
+      "checkers": [
+        {
+          "type": "file_contains",
+          "pattern": "350",
+          "files": [
+            "answer.txt"
+          ]
+        }
+      ],
+      "timeout_seconds": 900,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "lmeval",
+        "split:s",
+        "lmeval-rev:TEMPLATE"
+      ]
+    },
+    {
+      "id": "lmeval-s-001-e4e791218a09b821",
+      "prompt": "Answer a question about a user's past conversation history.\n\nThe relevant session logs are saved at these locations:\n  lmeval-s-001-e4e791218a09b821/session-1.txt\n  lmeval-s-001-e4e791218a09b821/session-2.txt\n  lmeval-s-001-e4e791218a09b821/session-3.txt\n\nRead the session logs, find the information needed, and answer the question.\n\nQuestion: Which room did I book for the standing weekly review with the platform group?\n\nWrite your final answer to a file named answer.txt in the current working\ndirectory (repository root), containing only the answer. Keep the answer as\nshort and direct as possible — usually a name, date, number, or short phrase.\nUse file_write with the direct:true argument so the file is written to disk\nimmediately.",
+      "checkers": [
+        {
+          "type": "file_contains",
+          "pattern": "Mistral Room",
+          "files": [
+            "answer.txt"
+          ]
+        }
+      ],
+      "timeout_seconds": 900,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "lmeval",
+        "split:s",
+        "lmeval-rev:TEMPLATE"
+      ]
+    },
+    {
+      "id": "lmeval-s-002-439bf013b1e1279f",
+      "prompt": "Answer a question about a user's past conversation history.\n\nThe relevant session logs are saved at these locations:\n  lmeval-s-002-439bf013b1e1279f/session-1.txt\n\nRead the session logs, find the information needed, and answer the question.\n\nQuestion: What working arrangement did Marco request for the autumn, and where does the weekly review take place?\n\nWrite your final answer to a file named answer.txt in the current working\ndirectory (repository root), containing only the answer. Keep the answer as\nshort and direct as possible — usually a name, date, number, or short phrase.\nUse file_write with the direct:true argument so the file is written to disk\nimmediately.",
+      "checkers": [
+        {
+          "type": "llm_judge",
+          "rubric": "Does the answer state \"Marco requested the hybrid setup: three days remote (Monday to Wednesday) and two days onsite, with the standing weekly review held in the Mistral Room.\"? Accept paraphrase.",
+          "min_score": 0.7
+        }
+      ],
+      "timeout_seconds": 900,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "lmeval",
+        "split:s",
+        "lmeval-rev:TEMPLATE"
+      ]
+    }
+  ],
+  "meta": {
+    "adapter_seed": "0",
+    "dataset_id": "xiaowu0162/longmemeval",
+    "generation": "adapter",
+    "license": "MIT",
+    "mode": "context",
+    "source_split": "S"
+  }
+}

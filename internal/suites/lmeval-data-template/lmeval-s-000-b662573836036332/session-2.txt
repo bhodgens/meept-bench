@@ -1,0 +1,4 @@
+user: Marco stopped by today about the warehouse reorder tool.
+assistant: What did he want adjusted?
+user: He asked me to set the minimum auto-approve budget to 350 dollars for supply orders. Anything above that still needs a human sign-off.
+assistant: Got it, 350 dollars as the auto-approve threshold.
