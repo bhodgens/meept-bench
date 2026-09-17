@@ -41,12 +41,27 @@ func DefaultSocketPath() string {
 type Client struct {
 	path string
 
+	// LivenessTimeout bounds how long ChatAsync waits for a turn.terminal
+	// event before declaring the turn stalled (ErrTurnStalled). Defaults to
+	// DefaultLivenessTimeout; settable per client (e.g. raised for suites
+	// whose tasks legitimately outlast the default).
+	LivenessTimeout time.Duration
+
 	mu     sync.Mutex
 	conn   net.Conn
 	reader *frameReader
 	writer io.Writer
 	nextID int64
 }
+
+// DefaultLivenessTimeout is the initial liveness window for ChatAsync when
+// Client.LivenessTimeout is zero.
+const DefaultLivenessTimeout = 120 * time.Second
+
+// ErrTurnStalled is returned by ChatAsync when no turn.terminal event
+// arrives within Client.LivenessTimeout. Use errors.Is to detect it; the
+// runner maps it to the "stalled" error_kind.
+var ErrTurnStalled = errors.New("turn stalled: no turn.terminal event")
 
 type frameReader struct{ r *bufio.Reader }
 
@@ -90,6 +105,14 @@ func NewDefault() *Client { return New(DefaultSocketPath()) }
 // independently.
 func (c *Client) Fork() *Client {
 	return New(c.path)
+}
+
+// liveness returns the effective liveness window for this client.
+func (c *Client) liveness() time.Duration {
+	if c.LivenessTimeout > 0 {
+		return c.LivenessTimeout
+	}
+	return DefaultLivenessTimeout
 }
 
 // Path returns the configured socket path.
@@ -256,6 +279,11 @@ func (c *Client) Status(ctx context.Context) (map[string]any, error) {
 // correct for benchmark tasks that exceed 120s, we subscribe to the
 // `chat_message` bus topic BEFORE sending; if the RPC times out we keep
 // waiting there for the assistant reply carrying our conversation ID.
+//
+// Deprecated: use ChatAsync (chat.submit + turn.terminal). Chat's blocking
+// "chat" RPC path records the daemon's "Task ... is still running" stub as
+// a final reply on proxy timeouts; ChatAsync awaits the real terminal
+// event. Kept compiling for the fallback window until leaf 07 removes it.
 func (c *Client) Chat(ctx context.Context, message, sessionID string) (*ChatResponse, error) {
 	conversation := sessionID
 	if conversation == "" {
@@ -625,4 +653,150 @@ func (c *Client) QueueStatus(ctx context.Context, conversationID string) (steeri
 		"conversation_id": conversationID,
 	}, &out)
 	return out.SteeringDepth, out.FollowUpDepth, out.IsActive, err
+}
+
+// --- Async chat (chat.submit + turn.terminal) ---
+
+// ChatAck is the acknowledgement returned by the "chat.submit" RPC.
+type ChatAck struct {
+	TurnID         string `json:"turn_id"`
+	ConversationID string `json:"conversation_id"`
+	SessionID      string `json:"session_id"`
+	Accepted       bool   `json:"accepted"`
+	Note           string `json:"note"`
+}
+
+// TurnResult is the awaited terminal outcome of an async turn, distilled
+// from the "turn.terminal" bus event.
+type TurnResult struct {
+	// Reply is the final reply text — under the async path it is the real
+	// terminal reply, never the "Task ... is still running" stub.
+	Reply string
+	// Status is one of completed | failed | timeout | parked.
+	Status string
+	// Error carries the daemon-side failure text when Status == "failed".
+	Error string
+	// DurationMS is the daemon-reported turn duration.
+	DurationMS int64
+}
+
+// ChatMetrics records the latency split for one async turn: AckSeconds is
+// submit→ack (queueing time) and TurnSeconds is ack→turn.terminal (agent
+// run time). ChatAsync fills the pointed-to struct; it is optional (nil is
+// fine).
+type ChatMetrics struct {
+	AckSeconds  float64
+	TurnSeconds float64
+}
+
+// turnTerminalPayload mirrors the frozen 13-key "turn.terminal" bus payload
+// (meept Plan 1 Contract 1). Only the fields ChatAsync consumes are
+// decoded.
+type turnTerminalPayload struct {
+	ConversationID string `json:"conversation_id"`
+	SessionID      string `json:"session_id"`
+	TurnID         string `json:"turn_id"`
+	Status         string `json:"status"`
+	Reply          string `json:"reply"`
+	DurationMS     int64  `json:"duration_ms"`
+	Error          string `json:"error"`
+}
+
+// ChatAsync submits a chat turn via the "chat.submit" RPC and awaits the
+// daemon's "turn.terminal" bus event for the returned turn ID.
+//
+// ctx bounds the WHOLE turn (typically the task timeout): it covers the
+// submit, the ack wait, and the terminal wait. The turn.terminal
+// subscription is established BEFORE the submit so a fast daemon can never
+// publish the terminal event into the gap.
+//
+// A failed turn (Status == "failed") is a VALID outcome, not an error: the
+// returned TurnResult carries Status/Error and err is nil, letting the
+// caller grade the turn like any other. Errors are reserved for transport
+// failures, rejected submissions (ack Accepted == false), context
+// cancellation, and stalls (ErrTurnStalled, when no terminal event arrives
+// within Client.LivenessTimeout). metrics, when non-nil, receives the
+// ack/turn latency split.
+func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metrics *ChatMetrics) (*TurnResult, error) {
+	start := time.Now()
+
+	// Subscribe BEFORE the submit: no window in which a fast turn's
+	// terminal event could be published unsubscribed.
+	subCtx, cancelSub := context.WithTimeout(ctx, 10*time.Second)
+	sub, err := c.Subscribe(subCtx, []string{"turn.terminal"})
+	cancelSub()
+	if err != nil {
+		return nil, fmt.Errorf("chat.submit: subscribe turn.terminal: %w", err)
+	}
+	defer sub.Unsubscribe(context.Background())
+
+	conversation := sessionID
+	if conversation == "" {
+		conversation = fmt.Sprintf("bench-%d", time.Now().UnixNano())
+	}
+	params := map[string]any{
+		"message":         message,
+		"session_id":      sessionID,
+		"conversation_id": conversation,
+		"source_client":   "meept-bench",
+	}
+	var ack ChatAck
+	if err := c.Call(ctx, "chat.submit", params, &ack); err != nil {
+		return nil, fmt.Errorf("chat.submit: %w", err)
+	}
+	if !ack.Accepted {
+		note := ack.Note
+		if note == "" {
+			note = "submission rejected"
+		}
+		return nil, fmt.Errorf("chat.submit rejected (turn_id=%s): %s", ack.TurnID, note)
+	}
+	if ack.TurnID == "" {
+		return nil, fmt.Errorf("chat.submit accepted but returned no turn_id")
+	}
+	if metrics != nil {
+		metrics.AckSeconds = time.Since(start).Seconds()
+	}
+
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	waitStart := time.Now() // liveness window opens at submit, before any event
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("chat turn %s: %w", ack.TurnID, ctx.Err())
+		case <-tick.C:
+			evts, err := sub.Poll(ctx)
+			if err != nil {
+				if ctx.Err() != nil {
+					return nil, fmt.Errorf("chat turn %s: %w", ack.TurnID, ctx.Err())
+				}
+				continue // transient poll failure: keep waiting until ctx/stall
+			}
+			for _, e := range evts {
+				var p turnTerminalPayload
+				if json.Unmarshal(e.Payload, &p) != nil {
+					continue
+				}
+				if p.TurnID != ack.TurnID {
+					continue // unrelated turn: ignore
+				}
+				if p.Status == "" {
+					continue // not a terminal event (defensive)
+				}
+				if metrics != nil {
+					metrics.TurnSeconds = time.Since(start).Seconds() - metrics.AckSeconds
+				}
+				return &TurnResult{
+					Reply:      p.Reply,
+					Status:     p.Status,
+					Error:      p.Error,
+					DurationMS: p.DurationMS,
+				}, nil
+			}
+			if time.Since(waitStart) >= c.liveness() {
+				return nil, fmt.Errorf("chat turn %s: %w (liveness timeout %s)", ack.TurnID, ErrTurnStalled, c.liveness())
+			}
+		}
+	}
 }

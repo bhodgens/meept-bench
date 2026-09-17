@@ -275,7 +275,20 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 		turnEvents, turnWait = r.scheduleTurns(turnCtx, steerSvr, steerTarget, t.Turns, promptSentAt)
 	}
 
-	resp, chatErr := client.Chat(chatCtx, t.Prompt, conversationID)
+	// Async chat (async-turn-migration leaf 02): submit via chat.submit and
+	// await the turn.terminal event. AckSeconds/TurnSeconds split the wall
+	// clock for the scorecard; a failed turn is a graded outcome (checks
+	// still run), not an automatic error.
+	var chatMetrics daemonclient.ChatMetrics
+	result, chatErr := client.ChatAsync(chatCtx, t.Prompt, conversationID, &chatMetrics)
+	row.AckSeconds, row.TurnSeconds = chatMetrics.AckSeconds, chatMetrics.TurnSeconds
+	if errors.Is(chatErr, daemonclient.ErrTurnStalled) {
+		// Liveness watchdog fired client-side: no turn.terminal within
+		// LivenessTimeout. Distinct from a task timeout — the daemon may
+		// still complete the work; it is just not observable here.
+		return r.finishErr(wt, row, m, t, attempt, "error", "turn stalled: no terminal event within the liveness window (task may still complete daemon-side)", turnEvents)
+	}
+	resp := asyncResultToChatResponse(result, chatErr)
 	close(done)
 	_ = sub.Unsubscribe(context.Background())
 
@@ -786,6 +799,31 @@ func (r *Runner) runCheckOpts() []checkers.RunOption {
 		opts = append(opts, checkers.WithDoubleJudge())
 	}
 	return opts
+}
+
+// asyncResultToChatResponse adapts ChatAsync's outcome to the ChatResponse
+// shape the rest of the attempt pipeline consumes (reply text, error text).
+// chatErr propagation stays the caller's job EXCEPT ErrTurnStalled, which
+// the caller short-circuits before this func — a non-nil chatErr here yields
+// an empty response whose Error carries the transport failure text.
+func asyncResultToChatResponse(result *daemonclient.TurnResult, chatErr error) *daemonclient.ChatResponse {
+	resp := &daemonclient.ChatResponse{}
+	if chatErr != nil {
+		resp.Error = chatErr.Error()
+		return resp
+	}
+	if result == nil {
+		resp.Error = "chat: nil turn result"
+		return resp
+	}
+	resp.Reply = result.Reply
+	if result.Status == "failed" {
+		resp.Error = result.Error
+		if resp.Error == "" {
+			resp.Error = "turn failed (status=failed, no error text)"
+		}
+	}
+	return resp
 }
 
 func (r *Runner) finishErr(wt *isolate.Worktree, row *results.Row, m *suite.Manifest, t suite.Task, attempt int, kind, detail string, turns []results.TurnEvent) *results.Row {

@@ -8,18 +8,23 @@ import (
 
 // Row is one attempt's result, appended to results/<suite>/results.jsonl.
 type Row struct {
-	Suite        string  `json:"suite"`
-	TaskID       string  `json:"task_id"`
-	Attempt      int     `json:"attempt"`
-	Seed         int64   `json:"seed"`
-	Model        string  `json:"model,omitempty"`
-	HFRevision   string  `json:"hf_revision,omitempty"`
-	Verdict      string  `json:"verdict"` // pass | fail | error | timeout
-	Passed       bool    `json:"passed"`
-	TokensIn     int64   `json:"tokens_in,omitempty"`
-	TokensOut    int64   `json:"tokens_out,omitempty"`
-	CostUSD      float64 `json:"cost_usd,omitempty"`
-	WallSeconds  float64 `json:"wall_seconds"`
+	Suite       string  `json:"suite"`
+	TaskID      string  `json:"task_id"`
+	Attempt     int     `json:"attempt"`
+	Seed        int64   `json:"seed"`
+	Model       string  `json:"model,omitempty"`
+	HFRevision  string  `json:"hf_revision,omitempty"`
+	Verdict     string  `json:"verdict"` // pass | fail | error | timeout
+	Passed      bool    `json:"passed"`
+	TokensIn    int64   `json:"tokens_in,omitempty"`
+	TokensOut   int64   `json:"tokens_out,omitempty"`
+	CostUSD     float64 `json:"cost_usd,omitempty"`
+	WallSeconds float64 `json:"wall_seconds"`
+	// AckSeconds/TurnSeconds split the wall clock for async turns
+	// (chat.submit → ack, ack → turn.terminal). Zero on legacy rows —
+	// omitempty keeps old results.jsonl files diff-compatible.
+	AckSeconds   float64 `json:"ack_seconds,omitempty"`
+	TurnSeconds  float64 `json:"turn_seconds,omitempty"`
 	Checks       []any   `json:"checks,omitempty"`
 	ErrorKind    string  `json:"error_kind,omitempty"`
 	ErrorDetail  string  `json:"error_detail,omitempty"`
