@@ -56,7 +56,11 @@ type Client struct {
 
 // DefaultLivenessTimeout is the initial liveness window for ChatAsync when
 // Client.LivenessTimeout is zero.
-const DefaultLivenessTimeout = 120 * time.Second
+// Client.LivenessTimeout is zero. 300s: a single multi-minute LLM+tool
+// step emits no intermediate events (gate 2026-09-17: 2-minute silent
+// steps are routine), so the window must tolerate one full silent stretch
+// while staying under the runner's task budget.
+const DefaultLivenessTimeout = 300 * time.Second
 
 // ErrTurnStalled is returned by ChatAsync when no turn.terminal event
 // arrives within Client.LivenessTimeout. Use errors.Is to detect it; the

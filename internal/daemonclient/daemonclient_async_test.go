@@ -426,12 +426,12 @@ func TestChatAsyncFastTurnNeverMissesTerminal(t *testing.T) {
 }
 
 func TestLivenessDefault(t *testing.T) {
-	if DefaultLivenessTimeout != 120*time.Second {
-		t.Errorf("DefaultLivenessTimeout = %v, want 120s", DefaultLivenessTimeout)
+	if DefaultLivenessTimeout != 300*time.Second {
+		t.Errorf("DefaultLivenessTimeout = %v, want 300s", DefaultLivenessTimeout)
 	}
 	c := New("/nonexistent.sock")
-	if got := c.liveness(); got != 120*time.Second {
-		t.Errorf("default liveness() = %v, want 120s", got)
+	if got := c.liveness(); got != 300*time.Second {
+		t.Errorf("default liveness() = %v, want 300s", got)
 	}
 	c.LivenessTimeout = 5 * time.Second
 	if got := c.liveness(); got != 5*time.Second {
