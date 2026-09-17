@@ -721,9 +721,12 @@ func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metri
 	start := time.Now()
 
 	// Subscribe BEFORE the submit: no window in which a fast turn's
-	// terminal event could be published unsubscribed.
+	// terminal event could be published unsubscribed. task.progress rides
+	// the same subscription as the liveness feed (relay-fix follow-up,
+	// gate 2026-09-17 12:25): multi-minute step execution emits
+	// task.progress, and any received event refreshes the liveness window.
 	subCtx, cancelSub := context.WithTimeout(ctx, 10*time.Second)
-	sub, err := c.Subscribe(subCtx, []string{"turn.terminal"})
+	sub, err := c.Subscribe(subCtx, []string{"turn.terminal", "task.progress"})
 	cancelSub()
 	if err != nil {
 		return nil, fmt.Errorf("chat.submit: subscribe turn.terminal: %w", err)
@@ -772,6 +775,15 @@ func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metri
 					return nil, fmt.Errorf("chat turn %s: %w", ack.TurnID, ctx.Err())
 				}
 				continue // transient poll failure: keep waiting until ctx/stall
+			}
+			if len(evts) > 0 {
+				// ANY subscribed-topic event counts as liveness
+				// (relay-fix follow-up, gate 2026-09-17 12:25): the
+				// subscription includes task.progress, which fires on
+				// task/step transitions — multi-minute step execution
+				// keeps the window fed. Without this, a healthy turn
+				// with >120s of silent tool execution stalls.
+				waitStart = time.Now()
 			}
 			for _, e := range evts {
 				var p turnTerminalPayload
