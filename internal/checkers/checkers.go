@@ -61,6 +61,14 @@ func Run(ctx context.Context, c suite.Check, worktree, finalAnswer string, judge
 		r.Passed, r.Detail, err = exactFile(c, worktree)
 	case "file_contains":
 		r.Passed, r.Detail, err = fileContains(c, worktree)
+	case "trusted_python":
+		if c.TrustedScript() == "" {
+			err = fmt.Errorf("trusted checker requires suite.Load")
+		} else {
+			// -I ignores PYTHONPATH, user site, and worktree module shadowing.
+			c.Command = append([]string{"python3", "-I", "-B", "-c", c.TrustedScript()}, c.Command...)
+			r.Passed, r.Detail, err = exitZero(ctx, c, worktree)
+		}
 	case "exit_zero":
 		r.Passed, r.Detail, err = exitZero(ctx, c, worktree)
 	case "llm_judge":

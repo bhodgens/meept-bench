@@ -1,0 +1,260 @@
+{
+  "suite": "routing-repair",
+  "internal": true,
+  "description": "Frozen synthetic repair regressions, not unseen model-quality evidence. Nine fresh single-turn tasks. Media requires approved real transcript access; no canned ingestion fixture. Reminder requires a dedicated scratch scheduler. Read RUNBOOK fixture section before running.",
+  "meta": {
+    "judge": "python3 -B suites/routing-repair-data/judge.py",
+    "fixture_policy": "Explicit hash-pinned setup_files resolved relative to manifest; no worktree sync.",
+    "media_control": "UNSUPPORTED: producer lacks validated turn/step/thread and requested-URL/content association. Checker fails closed even with network approval.",
+    "scheduling_control": "Read-only checker requires explicit MEEPT_ROUTING_JOBS_FILE from dedicated scratch daemon data dir. No default or production path."
+  },
+  "tasks": [
+    {
+      "id": "path-question",
+      "prompt": "What is wrong with routing/geometry.py?",
+      "timeout_seconds": 600,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "synthetic",
+        "arithmetic-path",
+        "negative"
+      ],
+      "checkers": [
+        {
+          "type": "llm_judge",
+          "rubric": "routing-repair:path",
+          "min_score": 1
+        }
+      ],
+      "forbidden_classification_methods": [
+        "short_message_guard"
+      ],
+      "setup_files": [
+        {
+          "source": "routing-repair-data/geometry.py",
+          "destination": "routing/geometry.py",
+          "sha256": "938147ee96f7e60598cd409a0a6c1ca16a9247491a261c2fe55d07acc1916957"
+        }
+      ]
+    },
+    {
+      "id": "arithmetic-control",
+      "prompt": "What is 17 * 24?",
+      "timeout_seconds": 600,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "synthetic",
+        "arithmetic-path",
+        "control"
+      ],
+      "checkers": [
+        {
+          "type": "llm_judge",
+          "rubric": "routing-repair:arithmetic",
+          "min_score": 1
+        }
+      ],
+      "expect_intent": "chat"
+    },
+    {
+      "id": "media-url-as-data",
+      "prompt": "Write a Python unittest in test_url_value.py for video_id in url_value.py using https://www.youtube.com/watch?v=BaW_jenozKc as input data.",
+      "timeout_seconds": 600,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "synthetic",
+        "media-data",
+        "negative"
+      ],
+      "checkers": [
+        {
+          "type": "trusted_python",
+          "command": [
+            "url-test"
+          ],
+          "script": "routing-repair-data/checks.py",
+          "sha256": "4ff376313044abab6ab6da4b9e8d5010e4469c085b04ad20f9c1f138663172bc"
+        }
+      ],
+      "expect_agent": "coder",
+      "expect_intent": "code",
+      "forbidden_classification_methods": [
+        "media_url_guard"
+      ],
+      "setup_files": [
+        {
+          "source": "routing-repair-data/url_value.py",
+          "destination": "url_value.py",
+          "sha256": "4982b5e7dd78dc6a4e6b5927b1a8c35151d56ae7741a6ccd9832cd5d55c997c8"
+        }
+      ]
+    },
+    {
+      "id": "media-transcript-control",
+      "prompt": "Fetch the transcript of https://www.youtube.com/watch?v=BaW_jenozKc and save it to video-transcript.txt.",
+      "timeout_seconds": 600,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "synthetic",
+        "media-data",
+        "control",
+        "requires-media-network",
+        "blocked-until-media-preflight",
+        "unsupported-producer-evidence"
+      ],
+      "checkers": [
+        {
+          "type": "trusted_python",
+          "command": [
+            "media"
+          ],
+          "script": "routing-repair-data/checks.py",
+          "sha256": "4ff376313044abab6ab6da4b9e8d5010e4469c085b04ad20f9c1f138663172bc"
+        }
+      ],
+      "expect_agent": "analyst",
+      "expect_intent": "analyze"
+    },
+    {
+      "id": "locative-file",
+      "prompt": "Create a file at routing/locative.txt containing exactly: locative works",
+      "timeout_seconds": 600,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "synthetic",
+        "locative-time",
+        "negative"
+      ],
+      "checkers": [
+        {
+          "type": "file_contains",
+          "file": "routing/locative.txt",
+          "pattern": "^locative works$"
+        }
+      ],
+      "expect_agent": "coder",
+      "expect_intent": "code"
+    },
+    {
+      "id": "timed-reminder-control",
+      "prompt": "Remind me every day at 9am: routing-reminder-7391: water the fern",
+      "timeout_seconds": 600,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "synthetic",
+        "locative-time",
+        "control",
+        "scratch-scheduler-only"
+      ],
+      "checkers": [
+        {
+          "type": "trusted_python",
+          "command": [
+            "reminder"
+          ],
+          "script": "routing-repair-data/checks.py",
+          "sha256": "4ff376313044abab6ab6da4b9e8d5010e4469c085b04ad20f9c1f138663172bc"
+        }
+      ],
+      "expect_agent": "scheduler",
+      "expect_intent": "schedule"
+    },
+    {
+      "id": "polite-file-punctuated",
+      "prompt": "Please, create a file named polite.txt containing exactly: polite works",
+      "timeout_seconds": 600,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "synthetic",
+        "polite-prefix",
+        "negative"
+      ],
+      "checkers": [
+        {
+          "type": "file_contains",
+          "file": "polite.txt",
+          "pattern": "^polite works$"
+        }
+      ],
+      "expect_agent": "coder",
+      "expect_intent": "code"
+    },
+    {
+      "id": "polite-file-plain",
+      "prompt": "Please create a file named polite.txt containing exactly: polite works",
+      "timeout_seconds": 600,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "synthetic",
+        "polite-prefix",
+        "negative"
+      ],
+      "checkers": [
+        {
+          "type": "file_contains",
+          "file": "polite.txt",
+          "pattern": "^polite works$"
+        }
+      ],
+      "expect_agent": "coder",
+      "expect_intent": "code"
+    },
+    {
+      "id": "git-status-control",
+      "prompt": "Run git status --porcelain --untracked-files=all and save its output, excluding routing-status.txt itself, to routing-status.txt.",
+      "timeout_seconds": 600,
+      "seeds": [
+        1
+      ],
+      "tags": [
+        "regression",
+        "synthetic",
+        "polite-prefix",
+        "control"
+      ],
+      "checkers": [
+        {
+          "type": "trusted_python",
+          "command": [
+            "git-status"
+          ],
+          "script": "routing-repair-data/checks.py",
+          "sha256": "4ff376313044abab6ab6da4b9e8d5010e4469c085b04ad20f9c1f138663172bc"
+        }
+      ],
+      "expect_agent": "committer",
+      "expect_intent": "git",
+      "setup_files": [
+        {
+          "source": "routing-repair-data/git-note.txt",
+          "destination": "routing-git-note.txt",
+          "sha256": "6ae3036576928f66499ba2823c03f6af5d300aa2d482f981c16064f8adbf2341"
+        }
+      ]
+    }
+  ]
+}
