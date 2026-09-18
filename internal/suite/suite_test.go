@@ -72,6 +72,35 @@ func TestSelectIgnoreTags(t *testing.T) {
 	}
 }
 
+func TestRoutingExpectations(t *testing.T) {
+	for _, tc := range []struct {
+		name, fields string
+		invalid      bool
+	}{
+		{"old", ``, false},
+		{"new", `,"expect_intent":"code","forbidden_classification_methods":["short_message_guard"]`, false},
+		{"empty optional", `,"expect_intent":"","forbidden_classification_methods":[]`, false},
+		{"empty method", `,"forbidden_classification_methods":[""]`, true},
+		{"blank method", `,"forbidden_classification_methods":["  "]`, true},
+		{"blank intent", `,"expect_intent":"  "`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "suite.json")
+			data := `{"suite":"s","tasks":[{"id":"a","prompt":"p","checkers":[{"type":"exit_zero","command":["true"]}]` + tc.fields + `}]}`
+			if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+				t.Fatal(err)
+			}
+			m, err := Load(path)
+			if (err != nil) != tc.invalid {
+				t.Fatalf("Load error = %v; invalid=%v", err, tc.invalid)
+			}
+			if tc.name == "new" && (m.Tasks[0].ExpectIntent != "code" || len(m.Tasks[0].ForbiddenClassificationMethods) != 1) {
+				t.Fatalf("fields lost: %+v", m.Tasks[0])
+			}
+		})
+	}
+}
+
 func TestValidateRejects(t *testing.T) {
 	cases := map[string]Manifest{
 		"no suite":   {Tasks: []Task{{ID: "x", Prompt: "p", Checkers: []Check{{Type: "exit_zero", Command: []string{"true"}}}}}},

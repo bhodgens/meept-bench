@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -40,6 +42,10 @@ type Task struct {
 	TimeoutS int      `json:"timeout_seconds,omitempty"`
 	Seeds    []int64  `json:"seeds,omitempty"`
 	Tags     []string `json:"tags,omitempty"`
+	// SetupFiles copies explicitly selected, hash-pinned files into each worktree.
+	// Sources are relative to the loaded manifest, never the runner's CWD.
+	SetupFiles []SetupFile `json:"setup_files,omitempty"`
+	setupRoot  string
 	// Turns schedules follow-up messages relative to the primary prompt.
 	// Each turn is delivered delay_s seconds after the primary chat goes
 	// out, on the same conversation ID. A turn sent while the agent is
@@ -50,7 +56,9 @@ type Task struct {
 	// ExpectAgent optionally asserts which meept agent the dispatcher should
 	// route this task to (e.g. "coder"). When set, the runner verifies the
 	// dispatched agent and fails the row on mismatch.
-	ExpectAgent string `json:"expect_agent,omitempty"`
+	ExpectAgent                    string   `json:"expect_agent,omitempty"`
+	ExpectIntent                   string   `json:"expect_intent,omitempty"`
+	ForbiddenClassificationMethods []string `json:"forbidden_classification_methods,omitempty"`
 	// Tools opts into deterministic tool variants (phase-2-3 P2.3).
 	// CachedFetch requires the daemon's cached-fetch mode: web tools are
 	// served from the local fixture cache and a miss fails with an
@@ -68,15 +76,17 @@ type ToolsConfig struct {
 
 // Check is one checker invocation.
 type Check struct {
-	Type     string          `json:"type"` // exact_file | file_contains | exit_zero | llm_judge
-	File     string          `json:"file,omitempty"`
-	Hash     string          `json:"sha256,omitempty"`
-	Pattern  string          `json:"pattern,omitempty"`
-	Files    []string        `json:"files,omitempty"`
-	Command  []string        `json:"command,omitempty"`
-	Rubric   string          `json:"rubric,omitempty"`
-	MinScore float64         `json:"min_score,omitempty"`
-	Extra    json.RawMessage `json:"extra,omitempty"`
+	Type       string          `json:"type"` // exact_file | file_contains | exit_zero | llm_judge
+	File       string          `json:"file,omitempty"`
+	Hash       string          `json:"sha256,omitempty"`
+	Pattern    string          `json:"pattern,omitempty"`
+	Files      []string        `json:"files,omitempty"`
+	Command    []string        `json:"command,omitempty"`
+	Rubric     string          `json:"rubric,omitempty"`
+	MinScore   float64         `json:"min_score,omitempty"`
+	Extra      json.RawMessage `json:"extra,omitempty"`
+	Script     string          `json:"script,omitempty"` // trusted_python source relative to manifest
+	scriptCode string
 }
 
 // Load reads and validates a suite manifest.
@@ -92,6 +102,18 @@ func Load(path string) (*Manifest, error) {
 	if err := m.Validate(); err != nil {
 		return nil, err
 	}
+	root, err := filepath.Abs(filepath.Dir(path))
+	if err != nil {
+		return nil, err
+	}
+	for i := range m.Tasks {
+		m.Tasks[i].setupRoot = root
+		for j := range m.Tasks[i].Checkers {
+			if err := m.Tasks[i].Checkers[j].loadTrustedScript(root); err != nil {
+				return nil, err
+			}
+		}
+	}
 	return &m, nil
 }
 
@@ -105,6 +127,9 @@ func (m *Manifest) Validate() error {
 	}
 	for i := range m.Tasks {
 		t := &m.Tasks[i]
+		if err := validateSetup(t.SetupFiles); err != nil {
+			return fmt.Errorf("task %s: %w", t.ID, err)
+		}
 		if t.ID == "" {
 			return fmt.Errorf("task[%d]: id is required", i)
 		}
@@ -113,6 +138,14 @@ func (m *Manifest) Validate() error {
 		}
 		if len(t.Checkers) == 0 {
 			return fmt.Errorf("task %s: at least one checker is required", t.ID)
+		}
+		if t.ExpectIntent != "" && strings.TrimSpace(t.ExpectIntent) == "" {
+			return fmt.Errorf("task %s: expect_intent must not be whitespace", t.ID)
+		}
+		for j, method := range t.ForbiddenClassificationMethods {
+			if strings.TrimSpace(method) == "" {
+				return fmt.Errorf("task %s: forbidden_classification_methods[%d] must not be empty", t.ID, j)
+			}
 		}
 		for j, turn := range t.Turns {
 			if turn.Message == "" {
@@ -140,6 +173,10 @@ func (m *Manifest) Validate() error {
 				// checker runs post-execution.
 				if _, err := regexp.Compile(c.Pattern); err != nil {
 					return fmt.Errorf("task %s check[%d]: bad pattern: %v", t.ID, j, err)
+				}
+			case "trusted_python":
+				if err := validateSetup([]SetupFile{{Source: c.Script, Destination: "checker.py", SHA256: c.Hash}}); err != nil {
+					return fmt.Errorf("task %s trusted checker: %w", t.ID, err)
 				}
 			case "exit_zero":
 				if len(c.Command) == 0 {

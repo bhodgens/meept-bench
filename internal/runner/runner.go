@@ -139,6 +139,10 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 		}
 	}()
 
+	if err := t.ApplySetup(wt.Path); err != nil {
+		return r.finishErr(wt, row, m, t, attempt, "error", "fixture setup: "+err.Error(), nil)
+	}
+
 	client := daemonclient.NewDefault()
 	defer client.Close()
 
@@ -180,9 +184,13 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	regCtx, cancelReg := context.WithTimeout(ctx, 15*time.Second)
 	_ = client.ProjectRegister(regCtx, name, name, wt.Path)
 	var sessionID, conversationID string
+	freshSession := false
 	if ids, err := client.SessionCreate(regCtx); err == nil {
 		sessionID = ids.SessionID
 		conversationID = ids.ConversationID
+		// session.create always calls store.Create; never resolve/reuse. Require
+		// both IDs so an incomplete response cannot establish association.
+		freshSession = sessionID != "" && conversationID != ""
 		if err := client.Call(regCtx, "project.set", map[string]any{
 			"session_id": sessionID,
 			"path":       wt.Path,
@@ -218,25 +226,29 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	// resolvedConv receives the thread conversation ID the daemon actually
 	// ran the primary turn under, once the lifecycle event arrives.
 	resolvedConv := make(chan string, 4)
-	go sub.Collect(ctx, 250*time.Millisecond, done, func(evts []daemonclient.Event) {
-		for _, e := range evts {
-			transcript.ToolTrace = append(transcript.ToolTrace, results.ToolEvent{
-				At: e.Timestamp, Topic: e.Topic, Type: e.Type, Source: e.Source, Raw: e.Payload,
-			})
-			if e.Topic == "agent.lifecycle.started" {
-				var p struct {
-					ConversationID string `json:"conversation_id"`
-				}
-				if json.Unmarshal(e.Payload, &p) == nil && p.ConversationID != "" &&
-					p.ConversationID != conversationID {
-					select {
-					case resolvedConv <- p.ConversationID:
-					default:
+	collected := make(chan struct{})
+	go func() {
+		defer close(collected)
+		sub.Collect(ctx, 250*time.Millisecond, done, func(evts []daemonclient.Event) {
+			for _, e := range evts {
+				transcript.ToolTrace = append(transcript.ToolTrace, results.ToolEvent{
+					At: e.Timestamp, Topic: e.Topic, Type: e.Type, Source: e.Source, Raw: e.Payload,
+				})
+				if e.Topic == "agent.lifecycle.started" {
+					var p struct {
+						ConversationID string `json:"conversation_id"`
+					}
+					if json.Unmarshal(e.Payload, &p) == nil && p.ConversationID != "" &&
+						p.ConversationID != conversationID {
+						select {
+						case resolvedConv <- p.ConversationID:
+						default:
+						}
 					}
 				}
 			}
-		}
-	})
+		})
+	}()
 
 	// Snapshot daemon status before the chat so per-task cost can be
 	// derived as a before/after delta. The raw status values are daemon-wide
@@ -282,14 +294,9 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	var chatMetrics daemonclient.ChatMetrics
 	result, chatErr := client.ChatAsync(chatCtx, t.Prompt, conversationID, &chatMetrics)
 	row.AckSeconds, row.TurnSeconds = chatMetrics.AckSeconds, chatMetrics.TurnSeconds
-	if errors.Is(chatErr, daemonclient.ErrTurnStalled) {
-		// Liveness watchdog fired client-side: no turn.terminal within
-		// LivenessTimeout. Distinct from a task timeout — the daemon may
-		// still complete the work; it is just not observable here.
-		return r.finishErr(wt, row, m, t, attempt, "error", "turn stalled: no terminal event within the liveness window (task may still complete daemon-side)", turnEvents)
-	}
 	resp := asyncResultToChatResponse(result, chatErr)
 	close(done)
+	<-collected // final drain must finish before serializing/reading the trace
 	_ = sub.Unsubscribe(context.Background())
 
 	// Give in-flight turn deliveries a bounded grace window to record
@@ -333,51 +340,62 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	}
 
 	row.WallSeconds = time.Since(start).Seconds()
+	transcript.FinalReply = resp.Reply
+	transcript.EndedAt = time.Now()
 	if chatErr != nil {
-		if ctx.Err() != nil || isDeadline(chatCtx) {
-			return r.finishErr(wt, row, m, t, attempt, "timeout", chatErr.Error(), turnEvents)
+		if errors.Is(chatErr, daemonclient.ErrTurnStalled) {
+			return r.finishErr(wt, row, m, t, attempt, "error", "turn stalled: no terminal event within the liveness window (task may still complete daemon-side)", turnEvents, transcript)
 		}
-		return r.finishErr(wt, row, m, t, attempt, "error", "chat: "+chatErr.Error(), turnEvents)
+		if ctx.Err() != nil || isDeadline(chatCtx) {
+			return r.finishErr(wt, row, m, t, attempt, "timeout", chatErr.Error(), turnEvents, transcript)
+		}
+		return r.finishErr(wt, row, m, t, attempt, "error", "chat: "+chatErr.Error(), turnEvents, transcript)
+	}
+	if result != nil && result.Status == "timeout" {
+		return r.finishErr(wt, row, m, t, attempt, "timeout", "agent: terminal status=timeout", turnEvents, transcript)
 	}
 	if resp.Error != "" {
-		return r.finishErr(wt, row, m, t, attempt, "error", "agent: "+resp.Error, turnEvents)
+		return r.finishErr(wt, row, m, t, attempt, "error", "agent: "+resp.Error, turnEvents, transcript)
+	}
+	if result == nil || result.Status != "completed" {
+		return r.finishErr(wt, row, m, t, attempt, "error", "agent: terminal status is not completed", turnEvents, transcript)
 	}
 	transcript.FinalReply = resp.Reply
 	transcript.EndedAt = time.Now()
 
-	// Routing assertion: ask the daemon which agent handled this
-	// conversation and record it in the transcript. When the suite
-	// declares expect_agent and the daemon reports a different agent,
-	// fail the row with a routing-mismatch check result — the task may
-	// have been executed by an agent without the tools/skills it needed.
-	agentCtx, cancelAgent := context.WithTimeout(ctx, 5*time.Second)
-	routed, agentErr := client.DispatchedAgent(agentCtx, conversationID)
-	cancelAgent()
-	if agentErr != nil && r.opt.Logf != nil {
-		r.opt.Logf("warning: dispatch trace unavailable (%v); routing not asserted", agentErr)
+	// One bounded response supplies all fields. No exact turn-ID association is
+	// claimed: scheduled turns invalidate the fresh single-submission fallback.
+	routeCtx, cancelRoute := context.WithTimeout(ctx, 5*time.Second)
+	observation := client.RoutingObservation(routeCtx, conversationID, freshSession && len(t.Turns) == 0)
+	cancelRoute()
+	row.Routing, transcript.Routing = &observation, &observation
+	transcript.RoutedAgent = observation.AgentID
+	transcript.ClassificationMethod = observation.ClassificationMethod
+	row.RoutingChecks = routingChecks(t, observation)
+	transcript.RoutingChecks = row.RoutingChecks
+	routeVerdict := "pass"
+	for _, check := range row.RoutingChecks {
+		if check.Status == "error" || (check.Status == "fail" && routeVerdict == "pass") {
+			routeVerdict = check.Status
+		}
+		if check.Status != "pass" {
+			if row.ErrorDetail != "" {
+				row.ErrorDetail += "; "
+			}
+			row.ErrorDetail += check.Detail
+		}
 	}
-	transcript.RoutedAgent = routed
-	// Classification-method provenance for the same dispatch decision:
-	// which classifier produced the routing (capability_matcher, llm,
-	// keyword, semantic, heuristic_fallback, …). Recorded for regression
-	// tracking across daemon upgrades; empty means unknown.
-	methodCtx, cancelMethod := context.WithTimeout(ctx, 5*time.Second)
-	method, methodErr := client.ClassificationMethod(methodCtx, conversationID)
-	cancelMethod()
-	if methodErr != nil && r.opt.Logf != nil {
-		r.opt.Logf("warning: classification method unavailable (%v)", methodErr)
+	if routeVerdict != "pass" {
+		row.ErrorKind = "routing_mismatch"
+		if routeVerdict == "error" {
+			row.ErrorKind = "routing_evidence"
+		}
+		transcript.Error = row.ErrorDetail
 	}
-	transcript.ClassificationMethod = method
-	if t.ExpectAgent != "" && routed != "" && routed != t.ExpectAgent {
-		r.writeTranscript(name, transcript)
-		return r.finishErr(wt, row, m, t, attempt, "fail",
-			fmt.Sprintf("routing mismatch: expect_agent=%s routed=%s", t.ExpectAgent, routed), nil)
-	}
-
 	r.writeTranscript(name, transcript)
 
 	// Checkers.
-	passed := true
+	passed := routeVerdict == "pass"
 	checkResults := make([]any, 0, len(t.Checkers))
 	for _, c := range t.Checkers {
 		res := checkers.Run(ctx, c, wt.Path, resp.Reply, r.judge, r.runCheckOpts()...)
@@ -389,6 +407,9 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	row.Checks = checkResults
 	row.Passed = passed
 	row.Verdict = map[bool]string{true: "pass", false: "fail"}[passed]
+	if routeVerdict == "error" {
+		row.Verdict = "error"
+	}
 
 	// Surface staged (pending-change) writes on failures: the agent may have
 	// staged a file write for review instead of writing to disk, so the file
@@ -447,6 +468,33 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 		r.opt.Logf("teardown %s: %v", name, err)
 	}
 	return row
+}
+
+// routingChecks checks only declared expectations, never treats absent fields
+// as a successful assertion, and retains each assertion's independent result.
+func routingChecks(t suite.Task, o daemonclient.RoutingObservation) []results.RoutingCheck {
+	var checks []results.RoutingCheck
+	add := func(name, actual, expected string, forbidden bool) {
+		c := results.RoutingCheck{Check: name, Status: "pass"}
+		if (o.EvidenceStatus != "available" && o.EvidenceStatus != "partial") || strings.TrimSpace(actual) == "" {
+			c.Status = "error"
+			c.Detail = "routing evidence unavailable for " + name + ": " + o.Detail
+		} else if (!forbidden && actual != expected) || (forbidden && actual == expected) {
+			c.Status = "fail"
+			c.Detail = fmt.Sprintf("routing mismatch: %s=%s observed=%s", name, expected, actual)
+		}
+		checks = append(checks, c)
+	}
+	if t.ExpectAgent != "" {
+		add("expect_agent", o.AgentID, t.ExpectAgent, false)
+	}
+	if t.ExpectIntent != "" {
+		add("expect_intent", o.Intent, t.ExpectIntent, false)
+	}
+	for _, method := range t.ForbiddenClassificationMethods {
+		add("forbidden_classification_methods", o.ClassificationMethod, method, true)
+	}
+	return checks
 }
 
 func (r *Runner) pickModel(m *suite.Manifest) string {
@@ -826,7 +874,7 @@ func asyncResultToChatResponse(result *daemonclient.TurnResult, chatErr error) *
 	return resp
 }
 
-func (r *Runner) finishErr(wt *isolate.Worktree, row *results.Row, m *suite.Manifest, t suite.Task, attempt int, kind, detail string, turns []results.TurnEvent) *results.Row {
+func (r *Runner) finishErr(wt *isolate.Worktree, row *results.Row, m *suite.Manifest, t suite.Task, attempt int, kind, detail string, turns []results.TurnEvent, captured ...*results.Transcript) *results.Row {
 	row.Verdict = kind
 	row.Passed = false
 	row.ErrorKind = kind
@@ -835,6 +883,12 @@ func (r *Runner) finishErr(wt *isolate.Worktree, row *results.Row, m *suite.Mani
 		Suite: m.Suite, TaskID: t.ID, Attempt: attempt, Seed: row.Seed,
 		Prompt: t.Prompt, Turns: turns, Error: detail,
 		StartedAt: row.StartedAt, EndedAt: time.Now(),
+	}
+	if len(captured) > 0 && captured[0] != nil {
+		tr = captured[0]
+		tr.Error = detail
+		tr.Turns = turns
+		tr.EndedAt = time.Now()
 	}
 	r.writeTranscript(fmt.Sprintf("%s-%s-a%d", m.Suite, t.ID, attempt), tr)
 	if kind == "timeout" || r.opt.KeepFailed {

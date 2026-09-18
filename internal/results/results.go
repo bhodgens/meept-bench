@@ -4,22 +4,33 @@ package results
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/bhodgens/meept-bench/internal/daemonclient"
 )
+
+// RoutingCheck is separate from artifact checks; Status is pass, fail, or error.
+type RoutingCheck struct {
+	Check  string `json:"check"`
+	Status string `json:"status"`
+	Detail string `json:"detail,omitempty"`
+}
 
 // Row is one attempt's result, appended to results/<suite>/results.jsonl.
 type Row struct {
-	Suite       string  `json:"suite"`
-	TaskID      string  `json:"task_id"`
-	Attempt     int     `json:"attempt"`
-	Seed        int64   `json:"seed"`
-	Model       string  `json:"model,omitempty"`
-	HFRevision  string  `json:"hf_revision,omitempty"`
-	Verdict     string  `json:"verdict"` // pass | fail | error | timeout
-	Passed      bool    `json:"passed"`
-	TokensIn    int64   `json:"tokens_in,omitempty"`
-	TokensOut   int64   `json:"tokens_out,omitempty"`
-	CostUSD     float64 `json:"cost_usd,omitempty"`
-	WallSeconds float64 `json:"wall_seconds"`
+	Routing       *daemonclient.RoutingObservation `json:"routing,omitempty"`
+	RoutingChecks []RoutingCheck                   `json:"routing_checks,omitempty"`
+	Suite         string                           `json:"suite"`
+	TaskID        string                           `json:"task_id"`
+	Attempt       int                              `json:"attempt"`
+	Seed          int64                            `json:"seed"`
+	Model         string                           `json:"model,omitempty"`
+	HFRevision    string                           `json:"hf_revision,omitempty"`
+	Verdict       string                           `json:"verdict"` // pass | fail | error | timeout
+	Passed        bool                             `json:"passed"`
+	TokensIn      int64                            `json:"tokens_in,omitempty"`
+	TokensOut     int64                            `json:"tokens_out,omitempty"`
+	CostUSD       float64                          `json:"cost_usd,omitempty"`
+	WallSeconds   float64                          `json:"wall_seconds"`
 	// AckSeconds/TurnSeconds split the wall clock for async turns
 	// (chat.submit → ack, ack → turn.terminal). Zero on legacy rows —
 	// omitempty keeps old results.jsonl files diff-compatible.
@@ -60,19 +71,21 @@ type TurnEvent struct {
 
 // Transcript is the captured agent interaction for one attempt.
 type Transcript struct {
-	Suite                string      `json:"suite"`
-	TaskID               string      `json:"task_id"`
-	Attempt              int         `json:"attempt"`
-	Seed                 int64       `json:"seed"`
-	Prompt               string      `json:"prompt"`
-	Turns                []TurnEvent `json:"turns,omitempty"`
-	FinalReply           string      `json:"final_reply"`
-	RoutedAgent          string      `json:"routed_agent,omitempty"`
-	ClassificationMethod string      `json:"classification_method,omitempty"`
-	Error                string      `json:"error,omitempty"`
-	ToolTrace            []ToolEvent `json:"tool_trace,omitempty"`
-	StartedAt            time.Time   `json:"started_at"`
-	EndedAt              time.Time   `json:"ended_at"`
+	Routing              *daemonclient.RoutingObservation `json:"routing,omitempty"`
+	RoutingChecks        []RoutingCheck                   `json:"routing_checks,omitempty"`
+	Suite                string                           `json:"suite"`
+	TaskID               string                           `json:"task_id"`
+	Attempt              int                              `json:"attempt"`
+	Seed                 int64                            `json:"seed"`
+	Prompt               string                           `json:"prompt"`
+	Turns                []TurnEvent                      `json:"turns,omitempty"`
+	FinalReply           string                           `json:"final_reply"`
+	RoutedAgent          string                           `json:"routed_agent,omitempty"`
+	ClassificationMethod string                           `json:"classification_method,omitempty"`
+	Error                string                           `json:"error,omitempty"`
+	ToolTrace            []ToolEvent                      `json:"tool_trace,omitempty"`
+	StartedAt            time.Time                        `json:"started_at"`
+	EndedAt              time.Time                        `json:"ended_at"`
 }
 
 // ToolEvent is one tool.execution.progress event distilled from the bus.
