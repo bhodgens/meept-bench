@@ -52,6 +52,134 @@ How to run the meept regression gate, read failures, and update baselines.
 | Transcripts | `<out>/transcripts/<suite>-<task>-a<N>.json` — full prompt, tool_trace, final_reply |
 | Kept worktrees | `~/.meept-bench/` scratch root (with `--keep-failed`, failed-attempt trees survive for inspection) |
 
+## Routing evidence and assertions
+
+Tasks may declare `expect_agent`, `expect_intent`, and
+`forbidden_classification_methods` (an array, e.g. `["short_message_guard"]`).
+Empty optional expectations preserve outcome-only grading. Blank method entries
+and whitespace-only intents are rejected at load time; artifact checkers remain
+required.
+
+Rows and transcripts include `routing` and `routing_checks`. Each routing check
+has `check`, `status` (`pass`, `fail`, or `error`), and optional `detail`.
+`checks` continues to hold artifact/outcome checks separately. An observed
+mismatch gives `verdict=fail`, `error_kind=routing_mismatch`; unavailable required
+evidence gives `verdict=error`, `error_kind=routing_evidence`. Both retain outcome
+checks for completed turns, plus the original prompt, reply, and tool trace.
+Artifact success cannot overwrite a routing failure/error. Incomplete, failed,
+and timeout turns do not earn artifact-check success. With no expectations,
+unavailable routing does not change an outcome-only verdict.
+
+`routing.evidence_status` is `available`, `partial` (one or more fields absent),
+or `unavailable`. Partial evidence can satisfy only assertions whose required
+fields exist. Missing `routing` in old rows/transcripts means **unknown**, not
+verified. The legacy `routed_agent` and `classification_method` transcript fields
+remain readable but alone do not prove association.
+
+The supported association is `fresh_session_unique_dispatch`: the runner calls
+`session.create` per attempt, requires both returned IDs, submits one primary
+turn, and reads `session.dispatch_trace` once with `session_id` equal to that
+conversation ID and `limit=2`. Exactly one non-errored, matching-session record
+is required. Zero, multiple, wrong-session, malformed, or unavailable records
+cannot pass requested assertions. Tasks with scheduled `turns` have unavailable
+routing evidence even when only one record happens to be returned.
+
+Producer contract inspected in meept: `internal/rpc/dispatch_trace.go:20-40`
+returns `{entries, count}`; **count is the returned slice length, not a total**.
+`internal/metrics/store.go:888-914` supplies `session_id`, `agent_id`,
+`intent_type`, `classifier_method`, `task_id`, `turn_no`, `model`, and
+`input_hash`, but no `turn_id` or `dispatch_id`. The observation maps `model`
+to `classifier_model`: it is classifier provenance, not proof of the serving
+agent model. `task_id`/`turn_no` are retained as diagnostics, not treated as
+stable turn identity. Freshness is source-backed: the RPC proxies to
+`session.Handler.handleCreate` (`session.go:1686-1703`), which calls store.Create;
+SQLiteStore.Create (`store_sqlite.go:447-487`) generates new session/conversation
+IDs and inserts a new session. No timestamp association or latest-entry fallback
+is used. Multi-turn routing acceptance needs a producer-supplied stable
+turn-to-dispatch association before it can be enabled.
+
+## Routing repair suite (suites/routing-repair.json)
+
+Nine frozen, synthetic, single-turn regression tasks (leaf 02 of the
+2026-09-17 routing-acceptance plan). This is a repair-evidence suite, not an
+unseen model-quality benchmark; it runs with a fresh `--out` per invocation
+and never against the production scheduler.
+
+- **Fixtures**: hash-pinned via `setup_files` per task. Sources resolve
+  relative to the manifest under `suites/routing-repair-data/`, are copied
+  into each attempt's fresh worktree before the daemon is contacted
+  (`internal/suite/setup.go`), and must pass their lowercase `sha256` at
+  attempt time — a mismatch aborts the task with verdict `error` before any
+  chat submit. No ambient worktree sync, no untracked-file leakage, no
+  overwrite of existing files, `.git`/parent/absolute destinations rejected
+  at load time. Prompts carry no setup instructions (prompt shape is the
+  diagnostic).
+- **Checker integrity**: `trusted_python` loads manifest-relative, hash-pinned
+  script bytes into harness memory at suite load. It never copies checker code
+  into the agent worktree, and executes Python with `-I -B -c` to ignore
+  worktree/PYTHONPATH imports. `setup_files` remain freely agent-editable.
+  This is an evaluator boundary, not an OS sandbox: same-user agents must not
+  have unrestricted access to the harness process, interpreter, or output dir.
+- **Media control is unsupported with the current producer.** The media checker
+  always fails closed with an explicit unsupported-evidence diagnostic.
+  `recordDispatch` stores handler `conversationID` as `session_id`; executor
+  events use the loop accounting conversation, possibly a thread/step identity.
+  Require producer-issued turn/task/step/thread association plus fetched URL
+  and content evidence before implementing ingestion acceptance. A matching
+  conversation and successful `transcript_fetch` alone are insufficient.
+- **No network is used silently.** `media-transcript-control` requires real
+  `transcript_fetch` tool evidence (success, uncached, same conversation) and
+  is expected BLOCKED until transcript tooling/network access is explicitly
+  approved for the scratch rig AND producer evidence is repaired; it is tagged `requires-media-network` +
+  `blocked-until-media-preflight`. There is no canned transcript fixture.
+  Note `cached_fetch` does not wrap `transcript_fetch`; do not treat a
+  cached-fetch gate as media coverage.
+- **Reminder control requires a dedicated scratch daemon.** The checker is
+  read-only over that daemon's `jobs.json` (point `MEEPT_ROUTING_JOBS_FILE`
+  at the scratch daemon's data dir; no production default). Reminder jobs
+  must be type=reminder, enabled, correct schedule/message, created during
+  this turn's window, and unique.
+- **Run it** (all nine tasks in one run, one --out dir, once):
+
+  ```sh
+  MEEPT_ROUTING_JOBS_FILE=~/.meept-scratch/jobs.json \
+    /tmp/meept-bench-bin run --suite suites/routing-repair.json \
+    --out results/routing-repair-run1 --auto-approved
+  ```
+
+  `MEEPT_ROUTING_RUN_DIR` (absolute, defaults to the run's `--out`) names the
+  directory whose `transcripts/` the outcome probes read; always use a fresh
+  output dir per acceptance run. Offline verifier for the deterministic
+  judge + outcome probes (no daemon, no model):
+
+  ```sh
+  go test -p 2 ./internal/suite -run TestRoutingRepair -count=1
+  python3 -B suites/routing-repair-data/checks_test.py
+  ```
+- **Answer checks are deterministic** (`suites/routing-repair-data/judge.py`
+  via the existing `llm_judge`/`--judge-cmd` contract, e.g. `--judge-cmd
+  'python3 -B suites/routing-repair-data/judge.py'`), not an LLM judge; they
+  grade the arithmetic and path-defect replies without burning model calls.
+- Case classes (tags): `arithmetic-path`, `media-data`, `locative-time`,
+  `polite-prefix` — each with a `negative` case and a `control` (positive)
+  case, so an overbroad guard repair is caught. Route assertions
+  (`expect_agent` / `expect_intent` / `forbidden_classification_methods`)
+  are separate from artifact/outcome checks; a completed misrouted turn
+  still records outcome results and cannot pass.
+- Frozen case list (do not reword prompts; the wording IS the test):
+
+  | id | class | role | route assertion |
+  |---|---|---|---|
+  | path-question | arithmetic-path | negative | forbids short_message_guard |
+  | arithmetic-control | arithmetic-path | control | intent chat |
+  | media-url-as-data | media-data | negative | agent coder, intent code, forbids media_url_guard |
+  | media-transcript-control | media-data | control | agent analyst, intent analyze (unsupported producer evidence) |
+  | locative-file | locative-time | negative | agent coder, intent code |
+  | timed-reminder-control | locative-time | control | agent scheduler, intent schedule |
+  | polite-file-punctuated | polite-prefix | negative | agent coder, intent code |
+  | polite-file-plain | polite-prefix | negative | agent coder, intent code |
+  | git-status-control | polite-prefix | control | agent committer, intent git |
+
 ## Failure triage
 
 Symptom → what to check, in order. Every path has a concrete probe.
