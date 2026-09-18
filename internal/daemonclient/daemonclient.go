@@ -520,6 +520,71 @@ func (c *Client) SessionCreate(ctx context.Context) (*SessionIDs, error) {
 	return ids, nil
 }
 
+// RoutingObservation records a single dispatch, not a synthesized latest view.
+// Empty EvidenceStatus (legacy JSON) means unknown. "partial" means association
+// is established but one or more route fields are absent; assertions must check
+// their required fields. The daemon has no turn_id/dispatch_id in this RPC.
+type RoutingObservation struct {
+	SessionID            string `json:"session_id,omitempty"`
+	AgentID              string `json:"agent_id,omitempty"`
+	Intent               string `json:"intent,omitempty"`
+	ClassificationMethod string `json:"classification_method,omitempty"`
+	TaskID               string `json:"task_id,omitempty"`
+	TurnNo               int    `json:"turn_no,omitempty"`
+	ClassifierModel      string `json:"classifier_model,omitempty"`
+	InputHash            string `json:"input_hash,omitempty"`
+	EvidenceStatus       string `json:"evidence_status"`
+	Association          string `json:"association,omitempty"`
+	Detail               string `json:"detail,omitempty"`
+}
+
+// RoutingObservation requires the caller to have created a fresh session and
+// submitted exactly one turn. Multi-turn association is not supported by the
+// current producer. limit=2 detects ambiguity: count is NOT a total count.
+func (c *Client) RoutingObservation(ctx context.Context, sessionID string, freshSingleTurn bool) RoutingObservation {
+	o := RoutingObservation{SessionID: sessionID, EvidenceStatus: "unavailable"}
+	if !freshSingleTurn || sessionID == "" {
+		o.Detail = "fresh-session single-turn association not established"
+		return o
+	}
+	var out struct {
+		Entries []struct {
+			SessionID string `json:"session_id"`
+			AgentID   string `json:"agent_id"`
+			Intent    string `json:"intent_type"`
+			Method    string `json:"classifier_method"`
+			TaskID    string `json:"task_id"`
+			TurnNo    int    `json:"turn_no"`
+			Model     string `json:"model"`
+			InputHash string `json:"input_hash"`
+			Error     string `json:"error"`
+		} `json:"entries"`
+		Count *int `json:"count"`
+	}
+	if err := c.Call(ctx, "session.dispatch_trace", map[string]any{"session_id": sessionID, "limit": 2}, &out); err != nil {
+		o.Detail = "dispatch trace: " + err.Error()
+		return o
+	}
+	if out.Count == nil || *out.Count != len(out.Entries) || len(out.Entries) != 1 {
+		o.Detail = fmt.Sprintf("expected exactly one dispatch; received %d (missing/inconsistent count or ambiguous evidence)", len(out.Entries))
+		return o
+	}
+	e := out.Entries[0]
+	if e.SessionID != sessionID || e.Error != "" {
+		o.Detail = "dispatch session mismatch or errored dispatch: " + e.Error
+		return o
+	}
+	o.AgentID, o.Intent, o.ClassificationMethod = e.AgentID, e.Intent, e.Method
+	o.TaskID, o.TurnNo, o.ClassifierModel, o.InputHash = e.TaskID, e.TurnNo, e.Model, e.InputHash
+	o.Association = "fresh_session_unique_dispatch"
+	o.EvidenceStatus = "available"
+	if strings.TrimSpace(e.AgentID) == "" || strings.TrimSpace(e.Intent) == "" || strings.TrimSpace(e.Method) == "" {
+		o.EvidenceStatus = "partial"
+		o.Detail = "one or more routing fields absent"
+	}
+	return o
+}
+
 // DispatchedAgent returns the agent the dispatcher routed the most recent
 // message in the given session/conversation to, by querying the daemon's
 // "session.dispatch_trace" RPC (persistent dispatch audit log, most recent
@@ -724,6 +789,25 @@ type turnTerminalPayload struct {
 func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metrics *ChatMetrics) (*TurnResult, error) {
 	start := time.Now()
 
+	conversation := sessionID
+	if conversation == "" {
+		conversation = fmt.Sprintf("bench-%d", time.Now().UnixNano())
+	}
+
+	// Plan-compiler seal driving (async-turn-migration follow-up, gate
+	// 2026-09-17): with plans.plan_compiler_enabled=true the daemon parks
+	// plan-mode tasks in the planning state until the caller seals the
+	// brainstorm draft via plan.seal. An autonomous client must drive that
+	// seal itself or the task never executes and the turn.terminal relay
+	// never fires (client stalls at the liveness window). Started as a
+	// goroutine before the submit; it exits silently on non-plan tasks
+	// (task.list_extended shows pending/executing) and is bounded by ctx.
+	sealCtx, cancelSeal := context.WithCancel(ctx)
+	defer cancelSeal()
+	go func() {
+		_, _ = c.SealTaskBySession(sealCtx, conversation, start)
+	}()
+
 	// Subscribe BEFORE the submit: no window in which a fast turn's
 	// terminal event could be published unsubscribed. task.progress rides
 	// the same subscription as the liveness feed (relay-fix follow-up,
@@ -737,10 +821,6 @@ func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metri
 	}
 	defer sub.Unsubscribe(context.Background())
 
-	conversation := sessionID
-	if conversation == "" {
-		conversation = fmt.Sprintf("bench-%d", time.Now().UnixNano())
-	}
 	params := map[string]any{
 		"message":         message,
 		"session_id":      sessionID,
