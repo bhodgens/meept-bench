@@ -14,3 +14,7 @@ suites/lmeval-data/
 # capture`, consumed by suites with tools.cached_fetch; machine-local
 # per phase-2-3 P2.3).
 /fixtures/
+
+# Generated campaign suites embed verbatim replay prompts (private
+# transcript text). Regenerate locally with tools/gen-phase2-suite.py.
+/suites/campaign-phase2.json

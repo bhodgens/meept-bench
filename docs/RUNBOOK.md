@@ -52,6 +52,57 @@ How to run the meept regression gate, read failures, and update baselines.
 | Transcripts | `<out>/transcripts/<suite>-<task>-a<N>.json` — full prompt, tool_trace, final_reply |
 | Kept worktrees | `~/.meept-bench/` scratch root (with `--keep-failed`, failed-attempt trees survive for inspection) |
 
+## Timeout semantics (which knob controls what)
+
+Two independent windows bound a bench task; confusing them caused the phase-2
+timeout storm of 2026-09-20 (7/48 `context deadline exceeded` rows at exactly
+240s across five intents, plus one quickplan turn that only finished at
+~540s):
+
+1. **Task timeout** — `timeout_seconds` per task in the suite manifest
+   (`internal/suite` `Task.TimeoutS` → `Task.Timeout()`, default 600s when
+   unset). `internal/runner` `RunTask` builds `chatCtx` from it
+   (`context.WithTimeout(ctx, t.Timeout())`). When it fires the row is
+   `verdict=timeout` with `context deadline exceeded`. **This is the knob the
+   phase-2 240s rows hit.**
+2. **Liveness window** — `daemonclient.Client.LivenessTimeout` (default
+   `DefaultLivenessTimeout` = 300s), how long `ChatAsync` waits between
+   `turn.terminal`/`task.progress` events before declaring the turn stalled
+   (`ErrTurnStalled` → `verdict=error`, "turn stalled", not `timeout`). Any
+   received event refreshes the window, so a turn emitting progress can run
+   indefinitely — up to the task timeout.
+
+Because (2) never terminates a turn that keeps emitting `task.progress`, a
+task can outlive its suite's nominal timeout only by being *clipped at the
+task boundary* — the 540.2s row means the turn ran ~300s past the flat 240s
+`timeout_seconds` under the daemon's own 300s liveness window (progress kept
+refreshing) until the task context finally killed the client at the next
+window boundary. **The correct knob for "this intent needs more time" is the
+suite's per-task `timeout_seconds`; raise the liveness window only for
+suites whose tasks go silent longer than 300s mid-step.**
+
+### Timeout policy (intent-scaled, phase 2)
+
+The phase-2 suite is GENERATED (`tools/gen-phase2-suite.py`, reads the local
+untracked replay-gold corpus — never commit suite JSON with replay text).
+The generator applies the timeout policy:
+
+- **Multi-step orchestration intents (`quickplan`, `plan`): 600s.** Those
+  turns legitimately run 4-9 minutes on the local 8B chain (one finished
+  daemon-side at ~540s).
+- **Single-step intents (`chat`, `code`, `review`, `git`, `analyze`,
+  `debug`, `platform`): 300s.** Completed phase-2 turns peaked at ~145s.
+
+`internal/suite` `TestCampaignPhase2ManifestLoads` pins the policy against
+the committed suite; `TestTimeoutPolicyGeneratorPinsPolicy` pins the
+generator constants. Regenerate after any corpus or policy change:
+
+```sh
+python3 tools/gen-phase2-suite.py \
+  --corpus /Users/caimlas/git/meept/tools/classifier-eval/replay-gold.local.json5 \
+  --out suites/campaign-phase2.json
+```
+
 ## Routing evidence and assertions
 
 Tasks may declare `expect_agent`, `expect_intent`, and
