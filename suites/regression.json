@@ -158,7 +158,7 @@
           "command": [
             "sh",
             "-c",
-            "python3 -c \"import json,glob,os,sys; ms=glob.glob('/Users/caimlas/git/meept-bench/results/**/transcripts/*bus-trace-arrives*.json', recursive=True); t=json.load(open(max(ms, key=os.path.getmtime))); sys.exit(0 if len(t.get('tool_trace', []))>0 else 1)\" || (echo 'tool_trace empty or transcript missing - bus subscription regressed (a20b105c)'; exit 1)"
+            "python3 -c \"import json,glob,os,sys; d=os.environ.get('MEEPT_BENCH_TRANSCRIPT_DIR',''); ms=glob.glob(os.path.join(d,'*bus-trace-arrives*.json')) if d else sorted(glob.glob('/Users/caimlas/git/meept-bench/results/**/transcripts/*bus-trace-arrives*.json', recursive=True), key=os.path.getmtime); t=json.load(open(ms[-1])); sys.exit(0 if len(t.get('tool_trace', []))>0 else 1)\" || (echo 'tool_trace empty or transcript missing - bus subscription regressed (a20b105c)'; exit 1)"
           ]
         }
       ]
@@ -217,7 +217,7 @@
           "command": [
             "sh",
             "-c",
-            "python3 -c \"import json,glob,os,sys; ms=glob.glob('/Users/caimlas/git/meept-bench/results/**/transcripts/*transcript-completeness*.json', recursive=True); t=json.load(open(max(ms, key=os.path.getmtime))); sys.exit(0 if t.get('final_reply') and t.get('prompt') else 1)\""
+            "python3 -c \"import json,glob,os,sys; d=os.environ.get('MEEPT_BENCH_TRANSCRIPT_DIR',''); ms=glob.glob(os.path.join(d,'*transcript-completeness*.json')) if d else sorted(glob.glob('/Users/caimlas/git/meept-bench/results/**/transcripts/*transcript-completeness*.json', recursive=True), key=os.path.getmtime); t=json.load(open(ms[-1])); sys.exit(0 if t.get('final_reply') and t.get('prompt') else 1)\""
           ]
         }
       ]

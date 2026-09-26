@@ -37,7 +37,17 @@ type RunOption func(*runConfig)
 
 // runConfig holds per-Run options.
 type runConfig struct {
-	doubleJudge bool
+	doubleJudge   bool
+	transcriptDir string
+}
+
+// WithTranscriptDir exports the CURRENT run's transcript directory to
+// exit_zero checker commands as MEEPT_BENCH_TRANSCRIPT_DIR. The bench
+// writes this run's transcripts there; checkers should read from it
+// instead of globbing results/** across every historical run dir (stale
+// runs from a sick daemon then poison later gate runs).
+func WithTranscriptDir(dir string) RunOption {
+	return func(rc *runConfig) { rc.transcriptDir = dir }
 }
 
 // WithDoubleJudge runs the llm_judge backend twice and reports the mean
@@ -67,10 +77,10 @@ func Run(ctx context.Context, c suite.Check, worktree, finalAnswer string, judge
 		} else {
 			// -I ignores PYTHONPATH, user site, and worktree module shadowing.
 			c.Command = append([]string{"python3", "-I", "-B", "-c", c.TrustedScript()}, c.Command...)
-			r.Passed, r.Detail, err = exitZero(ctx, c, worktree)
+			r.Passed, r.Detail, err = exitZero(ctx, c, worktree, rc.transcriptDir)
 		}
 	case "exit_zero":
-		r.Passed, r.Detail, err = exitZero(ctx, c, worktree)
+		r.Passed, r.Detail, err = exitZero(ctx, c, worktree, rc.transcriptDir)
 	case "llm_judge":
 		r.Score, r.Rationale, r.Detail, err = llmJudge(ctx, c, finalAnswer, judge, rc.doubleJudge)
 		r.Passed = err == nil && r.Score >= minScore(c.MinScore)
@@ -141,12 +151,19 @@ func trimTrailingNewline(data []byte) []byte {
 	return trimmed
 }
 
-func exitZero(ctx context.Context, c suite.Check, wt string) (bool, string, error) {
+func exitZero(ctx context.Context, c suite.Check, wt, transcriptDir string) (bool, string, error) {
 	if len(c.Command) == 0 {
 		return false, "", fmt.Errorf("empty command")
 	}
 	cmd := exec.CommandContext(ctx, c.Command[0], c.Command[1:]...)
 	cmd.Dir = wt
+	// MEEPT_BENCH_TRANSCRIPT_DIR names THIS run's transcript directory.
+	// Checkers that inspect transcripts should prefer it over globbing
+	// results/** (which leaks stale runs across gates). Empty when the
+	// runner had no out dir (never in practice; results/ is the fallback).
+	if transcriptDir != "" {
+		cmd.Env = append(os.Environ(), "MEEPT_BENCH_TRANSCRIPT_DIR="+transcriptDir)
+	}
 	out, err := cmd.CombinedOutput()
 	detail := trim(out)
 	if err != nil {

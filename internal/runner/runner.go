@@ -397,8 +397,14 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	// Checkers.
 	passed := routeVerdict == "pass"
 	checkResults := make([]any, 0, len(t.Checkers))
+	// This run's transcript dir: checkers that inspect transcripts must
+	// read THIS run's artifacts, not the newest match across results/**
+	// (a stale run dir from a sick daemon then poisons later gates —
+	// seen 2026-09-26 when gate-pre-push outlived its daemon).
+	transcriptDir := filepath.Join(r.outDirOr(), "transcripts")
+	opts := append(r.runCheckOpts(), checkers.WithTranscriptDir(transcriptDir))
 	for _, c := range t.Checkers {
-		res := checkers.Run(ctx, c, wt.Path, resp.Reply, r.judge, r.runCheckOpts()...)
+		res := checkers.Run(ctx, c, wt.Path, resp.Reply, r.judge, opts...)
 		checkResults = append(checkResults, res)
 		if !res.Passed {
 			passed = false

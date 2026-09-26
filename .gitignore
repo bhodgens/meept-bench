@@ -18,3 +18,4 @@ suites/lmeval-data/
 # Generated campaign suites embed verbatim replay prompts (private
 # transcript text). Regenerate locally with tools/gen-phase2-suite.py.
 /suites/campaign-phase2.json
+meept-bench-bin
