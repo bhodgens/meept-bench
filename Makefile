@@ -58,6 +58,9 @@ memory-fragments: build
 harness-fragment: build
 	$(BENCH_BIN) run --suite suites/fragments/harness-integrity.json --out results/harness-fragment $(FLAGS)
 
+efficiency: build
+	$(BENCH_BIN) run --suite suites/efficiency.json --out results/efficiency $(FLAGS)
+
 steering: build
 	$(BENCH_BIN) run --suite suites/steering.json --out results/steering $(FLAGS)
 	@echo "note: steering tasks are environment-gated (agnes quota parks agents)"

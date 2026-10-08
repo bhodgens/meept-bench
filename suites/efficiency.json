@@ -1,0 +1,143 @@
+{
+ "suite": "efficiency",
+ "description": "Cost-per-capability: does meept reach the right answer on the DIRECT path? Every other suite asserts correctness only. These tasks assert BOUNDS on the transcript's tool_trace / turns / routed_agent, so a run that is correct but thrashes still fails. Bounds are tuned to the measured mode of 150 archived transcripts (0-2 calls), not guessed.",
+ "tasks": [
+  {
+   "id": "eff-single-write",
+   "prompt": "Create a file named eff-single.txt in the repository root containing exactly the text: direct path",
+   "timeout_seconds": 300,
+   "seeds": [
+    1
+   ],
+   "tags": [
+    "efficiency",
+    "synthetic",
+    "direct-path",
+    "file-write"
+   ],
+   "checkers": [
+    {
+     "type": "file_contains",
+     "files": [
+      "eff-single.txt"
+     ],
+     "pattern": "direct path"
+    },
+    {
+     "type": "trusted_python",
+     "script": "efficiency-data/checks.py",
+     "sha256": "0198ac7bcfc5e20a07ccf0a8a50a3f935d64ac493a968a3cb7138499027a9709",
+     "command": [
+      "max_tools=3",
+      "min_tools=1",
+      "max_turns=1"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "eff-list-then-write",
+   "prompt": "List the files in the current directory, then write a file named eff-inventory.txt in the repository root containing the text: inventory captured",
+   "timeout_seconds": 300,
+   "seeds": [
+    1
+   ],
+   "tags": [
+    "efficiency",
+    "synthetic",
+    "direct-path",
+    "two-step"
+   ],
+   "checkers": [
+    {
+     "type": "file_contains",
+     "files": [
+      "eff-inventory.txt"
+     ],
+     "pattern": "inventory captured"
+    },
+    {
+     "type": "trusted_python",
+     "script": "efficiency-data/checks.py",
+     "sha256": "0198ac7bcfc5e20a07ccf0a8a50a3f935d64ac493a968a3cb7138499027a9709",
+     "command": [
+      "max_tools=4",
+      "min_tools=2",
+      "max_turns=1"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "eff-git-status-single",
+   "prompt": "Run git status --porcelain in the repository and write a file named eff-status.txt in the repository root containing the text: status captured",
+   "timeout_seconds": 300,
+   "seeds": [
+    1
+   ],
+   "tags": [
+    "efficiency",
+    "synthetic",
+    "direct-path",
+    "committer-routing"
+   ],
+   "checkers": [
+    {
+     "type": "file_contains",
+     "files": [
+      "eff-status.txt"
+     ],
+     "pattern": "status captured"
+    },
+    {
+     "type": "trusted_python",
+     "script": "efficiency-data/checks.py",
+     "sha256": "0198ac7bcfc5e20a07ccf0a8a50a3f935d64ac493a968a3cb7138499027a9709",
+     "command": [
+      "max_tools=4",
+      "min_tools=1",
+      "max_turns=1",
+      "agent_not=image-gen",
+      "agent_not=video-gen"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "eff-no-media-detour",
+   "prompt": "Write a file named eff-plain.txt in the repository root containing the text: plain write only",
+   "timeout_seconds": 300,
+   "seeds": [
+    1
+   ],
+   "tags": [
+    "efficiency",
+    "synthetic",
+    "direct-path",
+    "negative",
+    "no-media-detour"
+   ],
+   "checkers": [
+    {
+     "type": "file_contains",
+     "files": [
+      "eff-plain.txt"
+     ],
+     "pattern": "plain write only"
+    },
+    {
+     "type": "trusted_python",
+     "script": "efficiency-data/checks.py",
+     "sha256": "0198ac7bcfc5e20a07ccf0a8a50a3f935d64ac493a968a3cb7138499027a9709",
+     "command": [
+      "max_tools=2",
+      "min_tools=1",
+      "max_turns=1",
+      "agent_not=image-gen",
+      "agent_not=video-gen"
+     ]
+    }
+   ]
+  }
+ ]
+}
