@@ -78,6 +78,38 @@ covered by the repo-wide `*.local.json` gitignore rule).
 | `method` | string | `download` | `download` or `rows` |
 | `config_name` | string | `default` | datasets-server config (method `rows` only) |
 
+## Fast subset (`make lmeval-mini`)
+
+The full run is 500 tasks, single-turn: roughly 6-9h on the local 8B. For a
+quick memory-recall signal, `make lmeval-mini` emits a 30-task subset from
+`suites/longmemeval-s-mini.config.json` and runs it.
+
+**It is the same measurement, smaller.** The config pins the same
+`dataset_id`, `revision` (2ec2a557), `split` (S) and `mode` (context) as the full
+run, so the subset is a strict subsample rather than a different benchmark.
+
+**Sampling.** `limit` selects by reservoir sampling (Algorithm R) across the
+*whole* pinned split at a fixed `seed`, which is deterministic for a pinned
+revision and preserves the split's category proportions in expectation. It is
+deliberately NOT "the first N rows" — leading rows are not a representative
+sample of the split's question types.
+
+**Sizing.** Measured median `wall_seconds` across 27 archived lmeval/recall runs
+is 38s, so 30 tasks is about 19 minutes on the local 8B. At the observed 115s
+tail, 30 tasks is closer to 58 minutes — treat the budget as a median, not a
+guarantee. Both the regression suite's 50-115s range and the lmeval runs agree
+the per-task cost is dominated by model turns, not by harness overhead.
+
+**What it is not.** 30 tasks cannot resolve a small regression: it is a smoke
+signal for "did recall break", not a score to compare across revisions. Use the
+full run for any number you intend to quote.
+
+**CAUTION.** The emitter always writes `suites/longmemeval-s.generated.json`,
+regardless of `limit`. Running `make lmeval-mini` therefore REPLACES the full
+500-task suite on disk. Run `make lmeval-emit` (full config) before the next full
+run. The generated suite is gitignored, so this overwrite is invisible to
+`git status` — it was caught in review once already.
+
 ## Licensing notes for this repo
 
 - The MIT notice must accompany substantial copies of the data. We do not

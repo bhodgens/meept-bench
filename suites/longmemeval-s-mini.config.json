@@ -1,0 +1,20 @@
+{
+ "_comment": [
+  "Fast LongMemEval subset for a quick memory-recall signal.",
+  "Same dataset/revision/split/mode as the full run, so the subset is a",
+  "strict subsample of it rather than a different measurement.",
+  "limit=30 is reservoir-sampled (Algorithm R) across the WHOLE pinned split",
+  "with a fixed seed, so category proportions are preserved in expectation.",
+  "A hand-picked first-N would bias toward the split's leading categories.",
+  "Arithmetic: measured median wall_seconds/task across 27 archived lmeval",
+  "and recall runs is 38s, so 30 tasks ~= 19 minutes on the local 8B, inside",
+  "the 10-20 minute target. At the 115s tail worst case 30 tasks ~= 58min."
+ ],
+ "dataset_id": "xiaowu0162/longmemeval",
+ "revision": "2ec2a557",
+ "split": "S",
+ "mode": "context",
+ "limit": 30,
+ "seed": 20261007,
+ "method": "download"
+}

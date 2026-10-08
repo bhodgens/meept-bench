@@ -73,6 +73,18 @@ lmeval: build
 		--judge-cmd "$(JUDGE_CMD)"
 	@echo "note: judge is local (quota-free); agent work uses the daemon default chain"
 
+## Fast LongMemEval subset (~20 min, local 8B). Reservoir-sampled across
+## the whole pinned split at a fixed seed, so category proportions match the
+## full run; see suites/longmemeval-s-mini.config.json for the sizing maths.
+## CAUTION: the emitter always writes suites/longmemeval-s.generated.json, so
+## running this REPLACES the full 500-task suite on disk. Regenerate the full
+## suite with `make lmeval-emit` before the next full run.
+lmeval-mini: build
+	$(BENCH_BIN) lmeval -config suites/longmemeval-s-mini.config.json
+	$(BENCH_BIN) run --suite suites/longmemeval-s.generated.json \
+		--out results/lmeval-mini --auto-approved \
+		--judge-cmd "$(JUDGE_CMD)"
+
 ## Regenerate the LongMemEval manifest from the pinned HF revision.
 lmeval-emit: build
 	$(BENCH_BIN) lmeval -config /tmp/lmeval-full-config.json
