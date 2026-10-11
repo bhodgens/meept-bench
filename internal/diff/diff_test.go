@@ -119,12 +119,21 @@ func TestCompareBestAttemptSelection(t *testing.T) {
 	if !approxEq(d1.BaselineWall, 30) || !approxEq(d1.CurrentWall, 5) {
 		t.Errorf("t1 walls = %v/%v, want 30/5", d1.BaselineWall, d1.CurrentWall)
 	}
+	if d1.BaselinePassObs != 1 {
+		t.Errorf("t1 BaselinePassObs = %d, want 1 (one passing baseline attempt)", d1.BaselinePassObs)
+	}
 	d2 := m["t2"]
 	if d2.Status != "fixed" || d2.Baseline != "error" || d2.Current != "pass" {
 		t.Fatalf("t2 = %+v, want fixed/error/pass", d2)
 	}
-	if !approxEq(d2.BaselineWall, 150) || !approxEq(d2.WallDelta, -100) {
-		t.Errorf("t2 wall = %v (delta %v), want 150 (-100)", d2.BaselineWall, d2.WallDelta)
+	// Median-of-attempts wall: t2 never passed in the baseline, so its wall is
+	// the median over ALL attempts ((100+150)/2 = 125), not the last attempt's
+	// 150. The verdict/cost still come from the last attempt.
+	if !approxEq(d2.BaselineWall, 125) || !approxEq(d2.WallDelta, -75) {
+		t.Errorf("t2 wall = %v (delta %v), want 125 (-75)", d2.BaselineWall, d2.WallDelta)
+	}
+	if d2.BaselinePassObs != 0 {
+		t.Errorf("t2 BaselinePassObs = %d, want 0 (no passing attempts)", d2.BaselinePassObs)
 	}
 }
 
@@ -166,21 +175,26 @@ func TestCompareEmptySides(t *testing.T) {
 func TestSummarizeWallThreshold(t *testing.T) {
 	diffs := []TaskDiff{
 		// baseline 10s → 15s: exactly +50% counts.
-		{TaskID: "exact50", Status: "unchanged-pass", WallDelta: 5, BaselineWall: 10, CurrentWall: 15},
+		{TaskID: "exact50", Status: "unchanged-pass", WallDelta: 5, BaselineWall: 10, CurrentWall: 15, BaselinePassObs: 2},
 		// baseline 10s → 14.9s: +49% does not count.
-		{TaskID: "under50", Status: "unchanged-pass", WallDelta: 4.9, BaselineWall: 10, CurrentWall: 14.9},
+		{TaskID: "under50", Status: "unchanged-pass", WallDelta: 4.9, BaselineWall: 10, CurrentWall: 14.9, BaselinePassObs: 2},
 		// baseline 4s → 8s: +100% but baseline wall ≤ 5s noise floor.
-		{TaskID: "fastnoise", Status: "unchanged-pass", WallDelta: 4, BaselineWall: 4, CurrentWall: 8},
+		{TaskID: "fastnoise", Status: "unchanged-pass", WallDelta: 4, BaselineWall: 4, CurrentWall: 8, BaselinePassObs: 2},
 		// baseline 5s → 7.5s: +50% but 5s is not > 5s.
-		{TaskID: "fastboundary", Status: "unchanged-pass", WallDelta: 2.5, BaselineWall: 5, CurrentWall: 7.5},
+		{TaskID: "fastboundary", Status: "unchanged-pass", WallDelta: 2.5, BaselineWall: 5, CurrentWall: 7.5, BaselinePassObs: 2},
 		// baseline 6s → 8s: +33%, under threshold.
-		{TaskID: "slower-but-under", Status: "unchanged-pass", WallDelta: 2, BaselineWall: 6, CurrentWall: 8},
+		{TaskID: "slower-but-under", Status: "unchanged-pass", WallDelta: 2, BaselineWall: 6, CurrentWall: 8, BaselinePassObs: 2},
 		// baseline 10s → 5s: got faster.
-		{TaskID: "improved", Status: "unchanged-pass", WallDelta: -5, BaselineWall: 10, CurrentWall: 5},
+		{TaskID: "improved", Status: "unchanged-pass", WallDelta: -5, BaselineWall: 10, CurrentWall: 5, BaselinePassObs: 2},
+		// THE 2026-10-10 CASE: +63% off a SINGLE-observation baseline. The task
+		// is unchanged-pass and past the old 5s floor, but one observation has
+		// no variance estimate, so this must NOT warn. This is exactly the
+		// session-workdir-bound noise (5.6s -> 9.1s, BaselinePassObs=1).
+		{TaskID: "single-obs-noise", Status: "unchanged-pass", WallDelta: 3.5, BaselineWall: 5.6, CurrentWall: 9.1, BaselinePassObs: 1},
 	}
 	sum := Summarize(diffs)
 	if len(sum.WallRegressed) != 1 || sum.WallRegressed[0] != "exact50" {
-		t.Fatalf("WallRegressed = %v, want [exact50]", sum.WallRegressed)
+		t.Fatalf("WallRegressed = %v, want [exact50] (single-obs-noise must be suppressed)", sum.WallRegressed)
 	}
 	for _, list := range []struct {
 		name string
