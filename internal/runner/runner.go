@@ -15,6 +15,7 @@ import (
 	"github.com/bhodgens/meept-bench/internal/checkers"
 	"github.com/bhodgens/meept-bench/internal/daemonclient"
 	"github.com/bhodgens/meept-bench/internal/isolate"
+	"github.com/bhodgens/meept-bench/internal/isolation"
 	"github.com/bhodgens/meept-bench/internal/results"
 	"github.com/bhodgens/meept-bench/internal/suite"
 )
@@ -75,6 +76,15 @@ func New(opt Options) (*Runner, error) {
 
 // RunSuite executes every selected task and appends rows to results.jsonl.
 func (r *Runner) RunSuite(ctx context.Context, m *suite.Manifest, filter string) (string, []results.Row, error) {
+	// Defense in depth for the isolation guard: cmd/meept-bench `run`
+	// checks this before constructing a Runner, but RunSuite is the real
+	// dispatch entry point — a second caller (a future verb, a tools/
+	// binary, a direct runner.New) must not be able to dispatch bench
+	// traffic into the user's live ~/.meept state dir (BENCH-7391
+	// contamination, 2026-10-22).
+	if err := isolation.CheckSocket(isolation.DefaultSocketPath()); err != nil {
+		return "", nil, fmt.Errorf("isolation guard: %w", err)
+	}
 	outDir := r.opt.OutDir
 	if outDir == "" {
 		outDir = filepath.Join("results", sanitize(m.Suite))

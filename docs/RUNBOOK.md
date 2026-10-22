@@ -10,12 +10,16 @@ How to run the meept regression gate, read failures, and update baselines.
 - **Isolation gate (enforced).** `run` REFUSES to start when the socket
   resolves to the user's live state dir (`~/.meept/`): benchmark traffic
   would write memories, tasks, and tool-cache entries into the user's
-  persistent state. Export `MEEPT_BENCH_SOCKET` to a scratch-rig socket
-  before every run:
+  persistent state. The guard lives in `internal/isolation` and fires at
+  BOTH `cmd/meept-bench run` and `runner.RunSuite` (defense in depth — a
+  direct library caller cannot bypass it). Export `MEEPT_BENCH_SOCKET` to a
+  scratch-rig socket before every run:
 
   ```sh
   export MEEPT_BENCH_SOCKET=/path/to/scratch-rig/home/.meept/meept.sock
   ```
+
+  One-command rig: `scripts/scratch-rig.sh` (see *Scratch rig* below).
 
 - **Provider key configured** in the daemon (it holds all model credentials).
 - **Python 3 on PATH** — two harness-integrity tasks run `python3` one-liners
@@ -31,6 +35,45 @@ How to run the meept regression gate, read failures, and update baselines.
   ```sh
   /tmp/meept-bench-bin doctor
   ```
+
+## Scratch rig (one command)
+
+`scripts/scratch-rig.sh` provisions a fully isolated rig — own `MEEPT_HOME`
+(temp dir), own daemon from the meept repo binary, OS-assigned ports that
+never collide with the live runtimes (8080/8081/8082/8084/8143 are rejected
+at probe time) — waits for health, runs the bench with
+`MEEPT_BENCH_SOCKET` pointed at the rig socket, and tears everything down
+via `trap EXIT` (SIGTERM first, so the daemon's graceful shutdown takes its
+owned llama-server children with it):
+
+```sh
+# Fast boot, no model runtime — proves daemon health + the guard path:
+scripts/scratch-rig.sh --doctor-only --no-runtime
+
+# Full smoke run against a rig with its own llama-server (8B GGUF):
+scripts/scratch-rig.sh --suite suites/smoke.json
+
+# Regression gate on the rig, keeping it alive for postmortems:
+scripts/scratch-rig.sh --suite suites/regression.json --keep-rig
+scripts/scratch-rig.sh --down /tmp/meept-scratch-rig.XXXXXX   # teardown later
+```
+
+Knobs: `MEEPT_DAEMON_BIN` (default `~/git/meept/bin/meept-daemon`),
+`MEEPT_RIG_MODEL` (GGUF for the rig runtime), `MEEPT_RIG_REPO` (worktree
+source), `--task SUBSTR`, `-- <extra run args>`. The rig renders its own
+`meept.json5` + `models.json5` (single collapsed provider, every alias →
+one `rig/...` ref, blank extract/refusal slots), copies `config/agents/`
+in (the registry is empty without it), and writes `provenance.json` +
+`provenance.sha256` BEFORE launch. Verified 2026-10-22: `--doctor-only
+--no-runtime` boots, `doctor` answers OK on the rig socket, teardown
+leaves no daemon and no rig dir.
+
+The BENCH-7391 regression suites (`suites/regression.json`,
+`suites/fragments/memory-recall.json`) plant memory markers and are ONLY
+runnable through the guarded `run` path — every Makefile suite target, the
+CI workflow, and the RUNBOOK commands invoke `meept-bench run`, and both
+guard layers exit non-zero on a live-state socket before any task
+dispatches.
 
 ## Commands
 

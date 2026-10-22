@@ -33,10 +33,22 @@ FLAGS = --repo $(REPO) --scratch $(SCRATCH) --attempts $(ATTEMPTS) \
         --auto-approved $(MODEL_ARG) --judge-cmd "$(JUDGE_CMD)"
 
 .PHONY: all build smoke regression memory-fragments routing-fragment \
-        harness-fragment steering gate lmeval diff clean
+        harness-fragment steering gate lmeval diff clean \
+        scratch-doctor scratch-smoke scratch-regression
 
 build:
 	go build -o $(BENCH_BIN) ./cmd/meept-bench
+
+## One-command isolated scratch rig (own MEEPT_HOME, own daemon, remapped
+## ports, trap-EXIT teardown — never touches ~/.meept). See docs/RUNBOOK.md.
+scratch-doctor: build
+	scripts/scratch-rig.sh --doctor-only --no-runtime
+
+scratch-smoke: build
+	scripts/scratch-rig.sh --suite suites/smoke.json
+
+scratch-regression: build
+	scripts/scratch-rig.sh --suite suites/regression.json
 
 # Every committed suite, sequentially. LongMemEval (generated, 500 tasks)
 # is NOT in `all` — run it explicitly via `make lmeval` (multi-hour).
