@@ -102,6 +102,7 @@ func doctor() {
 }
 
 func run(args []string) {
+	requireIsolatedSocket()
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	suitePath := fs.String("suite", "", "suite manifest path")
 	taskFilter := fs.String("task", "", "task ID substring filter")

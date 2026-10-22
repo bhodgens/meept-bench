@@ -7,6 +7,16 @@ How to run the meept regression gate, read failures, and update baselines.
 - **meept daemon running.** The bench talks to it over a Unix socket:
   default `/Users/caimlas/.meept/meept.sock`, override with
   `MEEPT_BENCH_SOCKET=/path/to/meept.sock`.
+- **Isolation gate (enforced).** `run` REFUSES to start when the socket
+  resolves to the user's live state dir (`~/.meept/`): benchmark traffic
+  would write memories, tasks, and tool-cache entries into the user's
+  persistent state. Export `MEEPT_BENCH_SOCKET` to a scratch-rig socket
+  before every run:
+
+  ```sh
+  export MEEPT_BENCH_SOCKET=/path/to/scratch-rig/home/.meept/meept.sock
+  ```
+
 - **Provider key configured** in the daemon (it holds all model credentials).
 - **Python 3 on PATH** — two harness-integrity tasks run `python3` one-liners
   in their exit_zero probes.
