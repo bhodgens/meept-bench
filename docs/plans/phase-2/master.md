@@ -231,3 +231,35 @@ Known open items (logged, non-blocking):
    drops cross-conversation recall (pinned by memory-recall-marker).
 5. Meept-side: memory_store type=task SQL error (table task_memories has no
    column named search_text).
+
+## Test Gate
+
+<!-- Tests-first gate (hierarchical-planning skill v1.3.0, patched 2026-10-24).
+     Coverage matrix derived mechanically from leaf task headers; the control
+     agent (orchestrator, in-session) refines rows and fills test names at
+     Phase 0 dispatch. No implementation leaf dispatches until every row is
+     VALIDATED. Delta protocol: lesser of plan/tests updates to the greater.
+     Recipe: skill hierarchical-planning -> references/tests-first-gate.md -->
+
+| # | Feature (from plan) | Source | Unit tests | E2E tests | Status |
+|---|---------------------|--------|-----------|-----------|--------|
+| F1 | file-write-routes-coder task | 01-regression-routing.md | (pending) | (pending) | PENDING |
+| F2 | tool-hint-coder task | 01-regression-routing.md | (pending) | (pending) | PENDING |
+| F3 | pending-write-direct (inverted assertion) | 01-regression-routing.md | (pending) | (pending) | PENDING |
+| F4 | +2 pair: memory store then recall | 02-regression-memory.md | (pending) | (pending) | PENDING |
+| F5 | session-binding sanity | 02-regression-memory.md | (pending) | (pending) | PENDING |
+| F6 | bus-trace-arrives | 03-regression-harness.md | (pending) | (pending) | PENDING |
+| F7 | cost-attributed | 03-regression-harness.md | (pending) | (pending) | PENDING |
+| F8 | transcript-completeness | 03-regression-harness.md | (pending) | (pending) | PENDING |
+| F9 | diff core (internal/diff package, TDD) | 04-diff-command.md | (pending) | (pending) | PENDING |
+| F10 | JSONL loading | 04-diff-command.md | (pending) | (pending) | PENDING |
+| F11 | CLI wiring | 04-diff-command.md | (pending) | (pending) | PENDING |
+| F12 | end-to-end check | 04-diff-command.md | (pending) | (pending) | PENDING |
+| F13 | workflow file | 05-ci-workflow.md | (pending) | (pending) | PENDING |
+| F14 | baseline script | 05-ci-workflow.md | (pending) | (pending) | PENDING |
+| F15 | daemon readiness probe | 05-ci-workflow.md | (pending) | (pending) | PENDING |
+| ... | +17 more features (expand from leaf task headers at dispatch) | various | (pending) | (pending) | PENDING |
+
+Statuses: PENDING | DELTA | VALIDATED
+
+Delta log: (none yet)

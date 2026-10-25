@@ -119,3 +119,27 @@ Undefined metric null/n/a semantics should be audited in bench before transfer; 
 ## Preparation record
 
 Only these plan documents and the root handoff note are created during preparation. No source, suite, baseline, daemon, or skill change is required.
+
+## Test Gate
+
+<!-- Tests-first gate (hierarchical-planning skill v1.3.0, patched 2026-10-24).
+     Coverage matrix derived mechanically from leaf task headers; the control
+     agent (orchestrator, in-session) refines rows and fills test names at
+     Phase 0 dispatch. No implementation leaf dispatches until every row is
+     VALIDATED. Delta protocol: lesser of plan/tests updates to the greater.
+     Recipe: skill hierarchical-planning -> references/tests-first-gate.md -->
+
+| # | Feature (from plan) | Source | Unit tests | E2E tests | Status |
+|---|---------------------|--------|-----------|-----------|--------|
+| F1 | Routing evidence - implementation leaf | 01-routing-evidence.md | (pending) | (pending) | PENDING |
+| F2 | freeze fixtures and observable checks | 02-regression-suite.md | (pending) | (pending) | PENDING |
+| F3 | add the manifest and loader tests | 02-regression-suite.md | (pending) | (pending) | PENDING |
+| F4 | establish failure and repair evidence | 02-regression-suite.md | (pending) | (pending) | PENDING |
+| F5 | prepare the reviewed runner | 03-live-acceptance.md | (pending) | (pending) | PENDING |
+| F6 | run two complete acceptance passes | 03-live-acceptance.md | (pending) | (pending) | PENDING |
+| F7 | publish a sanitized acceptance record | 03-live-acceptance.md | (pending) | (pending) | PENDING |
+| F8 | reconcile ownership with the meept plan | 03-live-acceptance.md | (pending) | (pending) | PENDING |
+
+Statuses: PENDING | DELTA | VALIDATED
+
+Delta log: (none yet)
