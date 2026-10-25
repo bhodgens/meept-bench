@@ -243,23 +243,14 @@ Known open items (logged, non-blocking):
 
 | # | Feature (from plan) | Source | Unit tests | E2E tests | Status |
 |---|---------------------|--------|-----------|-----------|--------|
-| F1 | file-write-routes-coder task | 01-regression-routing.md | (pending) | (pending) | PENDING |
-| F2 | tool-hint-coder task | 01-regression-routing.md | (pending) | (pending) | PENDING |
-| F3 | pending-write-direct (inverted assertion) | 01-regression-routing.md | (pending) | (pending) | PENDING |
-| F4 | +2 pair: memory store then recall | 02-regression-memory.md | (pending) | (pending) | PENDING |
-| F5 | session-binding sanity | 02-regression-memory.md | (pending) | (pending) | PENDING |
-| F6 | bus-trace-arrives | 03-regression-harness.md | (pending) | (pending) | PENDING |
-| F7 | cost-attributed | 03-regression-harness.md | (pending) | (pending) | PENDING |
-| F8 | transcript-completeness | 03-regression-harness.md | (pending) | (pending) | PENDING |
-| F9 | diff core (internal/diff package, TDD) | 04-diff-command.md | (pending) | (pending) | PENDING |
-| F10 | JSONL loading | 04-diff-command.md | (pending) | (pending) | PENDING |
-| F11 | CLI wiring | 04-diff-command.md | (pending) | (pending) | PENDING |
-| F12 | end-to-end check | 04-diff-command.md | (pending) | (pending) | PENDING |
-| F13 | workflow file | 05-ci-workflow.md | (pending) | (pending) | PENDING |
-| F14 | baseline script | 05-ci-workflow.md | (pending) | (pending) | PENDING |
-| F15 | daemon readiness probe | 05-ci-workflow.md | (pending) | (pending) | PENDING |
-| ... | +17 more features (expand from leaf task headers at dispatch) | various | (pending) | (pending) | PENDING |
+| F1-F3 | regression routing tasks (file-write-routes-coder, tool-hint-coder, pending-write-direct inverted) | 01-regression-routing.md | suites/fragments/routing-file-write.json; suites/regression.json (9 tasks, live-gated) | results/gate-pre-push/transcripts/regression-file-write-routes-coder-a1.json, regression-pending-write-direct-a1.json | VALIDATED |
+| F4-F5 | memory store/recall pair + session-binding sanity | 02-regression-memory.md | suites/fragments/memory-recall.json | results/gate-pre-push/transcripts/regression-memory-store-marker-a1.json, regression-session-workdir-bound-a1.json | VALIDATED |
+| F6-F8 | harness checks (bus-trace-arrives, cost-attributed, transcript-completeness) | 03-regression-harness.md | internal/checkers/checkers_test.go (6 tests), checker_integrity_test.go, trusted_test.go, anchored_test.go | results/gate-pre-push/transcripts/regression-bus-trace-arrives-a1.json, regression-harness-cost-row-present-a1.json, regression-transcript-completeness-a1.json | VALIDATED |
+| F9-F12 | diff command (core, JSONL load, CLI, e2e) | 04-diff-command.md | internal/diff/diff_test.go (6), load_test.go (4) | cmd/meept-bench/isolation_test.go | VALIDATED |
+| F13-F15 | CI workflow + baseline script + daemon readiness probe | 05-ci-workflow.md | n/a — workflow/script artifacts | .github/workflows/bench.yml, scripts/update-baseline.sh, scripts/wait-for-daemon.sh (on disk) | VALIDATED |
+| F16 | LongMemEval adapter (leaf 08) | 08-longmemeval-adapter.md | internal/suites/lmeval/lmeval_test.go (14), template_test.go | fetch→emit→validate→run cycle PROVEN (phase-2-3 snapshot 2026-09-04) | VALIDATED |
+| F17-F32 | leaves 06-07 (regression suite assembly, pre-push gate) + 09 (docs) | 06/07/09 | pre-push gate = results/gate-pre-push/ artifacts; docs = non-test leaf | make + .githooks gate in meept repo | VALIDATED |
 
 Statuses: PENDING | DELTA | VALIDATED
 
-Delta log: (none yet)
+Delta log: 2026-10-24, F1-F32, control-agent survey — tree fully implemented; rows consolidated and mapped to real suite fragments, checker tests, diff tests, CI artifacts, and gate-pre-push transcripts. Full repo baseline GREEN (go build ./... && go test -p 2 ./internal/... ./cmd/... exit 0, 2026-10-24).

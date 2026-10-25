@@ -144,5 +144,29 @@
      VALIDATED. Delta protocol: lesser of plan/tests updates to the greater.
      Recipe: skill hierarchical-planning -> references/tests-first-gate.md -->
 
-N/A — no leaf documents found alongside this orchestrator. If this tree
-gains leaves, build the coverage matrix before dispatching them.
+Inline-leaf tree (no separate leaf files). Matrix rows = the P2.x/P3.x items
+defined inline below. Control-agent survey 2026-10-24: implemented items
+verified against real tests; unimplemented items stay PENDING (their tests
+dispatch BEFORE their implementation per the gate protocol).
+
+| # | Feature (from plan) | Source | Unit tests | E2E tests | Status |
+|---|---------------------|--------|-----------|-----------|--------|
+| F1 | P2.1 LongMemEval full-suite run | §P2.1 | n/a — operational run (results/ gitignored) | n/a | VALIDATED |
+| F2 | P2.2 Judge hardening (deterministic judge, rubric lint, double-judge agreement) | §P2.2 | internal/checkers/judge_test.go (3 tests), double_judge_test.go (9 tests) | same | VALIDATED |
+| F3 | P2.3 Deterministic tool variants (cached_fetch, capture cmd, fixtures) | §P2.3 | internal/runner/deterministic_gate_test.go; cmd/meept-bench/capture.go | same | VALIDATED |
+| F4 | P2.4 Multi-turn steering probe (Turns schema, steer RPC, transcript) | §P2.4 | internal/runner/steering_test.go (6 tests: ScheduleTurns, SteerTargetResolution, DeriveThreadConv, IsQueueGone, TurnEventTranscriptJSON) | same | VALIDATED |
+| F5 | P2.5 Phase-2 completion docs | §P2.5 | n/a — docs leaf | n/a | VALIDATED |
+| F6 | P3.1 GAIA adapter (internal/suites/gaia/) | §P3.1 | (none — adapter not implemented) | (none) | PENDING |
+| F7 | P3.2 Context-policy measurement harness (--policy-label) | §P3.2 | (none — not implemented) | (none) | PENDING |
+| F8 | P3.3 LoCoMo adapter + memory-episodic fragments | §P3.3 | (none — not implemented) | (none) | PENDING |
+| F9 | P3.4 Scorecard publish pipeline (meept-bench publish) | §P3.4 | (none — not implemented) | (none) | PENDING |
+
+Gate rule for F6-F9: when any P3 leaf dispatches, its tests are authored and
+VALIDATED first (Phase 0). F6 is additionally operator-blocked (P3.0 GAIA
+token gate).
+
+Statuses: PENDING | DELTA | VALIDATED
+
+Delta log: 2026-10-24, F1-F9, control-agent survey — matrix built from inline
+P2.x/P3.x items; P2 rows verified GREEN against internal/checkers + internal/runner
+tests; P3 rows unimplemented, left PENDING with gate note.

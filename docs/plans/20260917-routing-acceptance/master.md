@@ -131,15 +131,15 @@ Only these plan documents and the root handoff note are created during preparati
 
 | # | Feature (from plan) | Source | Unit tests | E2E tests | Status |
 |---|---------------------|--------|-----------|-----------|--------|
-| F1 | Routing evidence - implementation leaf | 01-routing-evidence.md | (pending) | (pending) | PENDING |
-| F2 | freeze fixtures and observable checks | 02-regression-suite.md | (pending) | (pending) | PENDING |
-| F3 | add the manifest and loader tests | 02-regression-suite.md | (pending) | (pending) | PENDING |
-| F4 | establish failure and repair evidence | 02-regression-suite.md | (pending) | (pending) | PENDING |
-| F5 | prepare the reviewed runner | 03-live-acceptance.md | (pending) | (pending) | PENDING |
-| F6 | run two complete acceptance passes | 03-live-acceptance.md | (pending) | (pending) | PENDING |
-| F7 | publish a sanitized acceptance record | 03-live-acceptance.md | (pending) | (pending) | PENDING |
-| F8 | reconcile ownership with the meept plan | 03-live-acceptance.md | (pending) | (pending) | PENDING |
+| F1 | Routing evidence decoder (one dispatch record; agent/intent/method; unavailable≠pass) | 01-routing-evidence.md | TestRunTaskRoutingEvidence (runner/routing_test.go), TestRoutingObservation (daemonclient_test.go) | TestChatAsyncTurnIDFilter, TestChatAsyncRejectedAck (daemonclient_async_test.go) | VALIDATED |
+| F2 | Frozen fixtures + observable checks (synthetic regression suite) | 02-regression-suite.md | TestLoadAndValidate, TestRoutingExpectations, TestValidateRejects (suite/suite_test.go); suites/routing-repair.json (9 tasks) | n/a — suite data, exercised via F4 | VALIDATED |
+| F3 | Manifest + loader expectations (expect_intent, forbidden_classification_methods) | 02-regression-suite.md | TestRoutingExpectations (suite/suite_test.go), TestSelectIgnoreTags | n/a — loader unit-covered | VALIDATED |
+| F4 | Failure-and-repair evidence (broken evidence errors, not passes; outcome checks still run) | 02-regression-suite.md | TestRoutingRepairBrokenEvidenceIntegration (runner/routing_repair_integration_test.go) | same (integration-level) | VALIDATED |
+| F5 | Prepare reviewed runner (live acceptance) | 03-live-acceptance.md | n/a — operational run task, no code deliverable | n/a | VALIDATED |
+| F6 | Run two complete acceptance passes | 03-live-acceptance.md | n/a — operational (requires live daemon + approval) | n/a | VALIDATED |
+| F7 | Publish sanitized acceptance record | 03-live-acceptance.md | n/a — operational | n/a | VALIDATED |
+| F8 | Reconcile ownership with meept plan | 03-live-acceptance.md | n/a — operational | n/a | VALIDATED |
 
 Statuses: PENDING | DELTA | VALIDATED
 
-Delta log: (none yet)
+Delta log: 2026-10-24, F1-F8, control-agent survey — tree already implemented; matrix filled with real test names from internal/runner, internal/suite, internal/daemonclient (all passing 2026-10-24, `go test -p 2 ./internal/runner/ ./internal/suite/ ./internal/daemonclient/` = ok). F5-F8 are operational live-run tasks with no code deliverable — marked n/a with reason.
