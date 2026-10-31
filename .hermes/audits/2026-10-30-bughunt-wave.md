@@ -41,7 +41,12 @@ Baseline gate: go build ./... OK; go test -p 2 -count=1 ./... ALL GREEN.
   says keep under ~ for daemon allowlists) — rejected.
 
 ## Fix disposition (fix-all authorized)
-- FIXING: #1 exit code, #2 abs+symlink validation, #3 collision guard,
-  #4 attempts validation — one fixer, scoped to cmd/meept-bench +
-  internal/isolate.
+- FIXED (commit fc7c495): #1 run exit code, #2 abs+symlink validation,
+  #3 collision guard (.bench-owner), #4 attempts validation. Gate green
+  across 8 packages. Parent caught two fixer bugs before commit:
+  (a) re-exec test recursed (fixed with the repo's probe pattern),
+  (b) EvalSymlinks ran before MkdirAll (first-run failure; reordered).
 - DEFER (logged): daemonclient retry breadth, orphan-worktree sweep.
+- Second wave (a2 scoring layer): ALL PASS — transcript scoping,
+  hash-pinned trusted checkers, median-of-N math, n>=2 noise guard.
+  No further findings; repo at diminishing returns after one wave.
