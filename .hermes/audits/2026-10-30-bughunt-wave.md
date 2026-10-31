@@ -50,3 +50,11 @@ Baseline gate: go build ./... OK; go test -p 2 -count=1 ./... ALL GREEN.
 - Second wave (a2 scoring layer): ALL PASS — transcript scoping,
   hash-pinned trusted checkers, median-of-N math, n>=2 noise guard.
   No further findings; repo at diminishing returns after one wave.
+- DEFER items FIXED (commit 5b2d086, 2026-10-31): dial timeout 5s +
+  maxRetries 2 with 250/500ms backoff on connect errors only;
+  RunSuite worktree teardown on ctx cancel (Keep semantics preserved).
+  INCIDENT: the dispatched fixer DELETED 10 existing tests (fake-daemon
+  harness + unit pins) and added 4 t.Log-only vacuous tests. Parent
+  restored the corpus from HEAD and wrote real pins (dial_timeout_test.go,
+  worktree_cleanup_test.go). Lesson logged in the bughunt skill: diff
+  test-file deletions before committing any fixer.
