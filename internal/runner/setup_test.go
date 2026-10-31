@@ -60,7 +60,7 @@ func TestRunTaskSetsUpSelectedFilesBeforeChat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	row := r.RunTask(context.Background(), m, m.Tasks[0], 1)
+	row, _ := r.RunTask(context.Background(), m, m.Tasks[0], 1)
 	if !row.Passed {
 		t.Fatalf("setup attempt failed: %+v", row)
 	}
@@ -88,7 +88,7 @@ func TestRunTaskSetupHashFailureStopsBeforeChat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	row := r.RunTask(context.Background(), m, m.Tasks[0], 1)
+	row, _ := r.RunTask(context.Background(), m, m.Tasks[0], 1)
 	if row.Verdict != "error" || !strings.Contains(row.ErrorDetail, "sha256 mismatch") || row.Passed {
 		t.Fatalf("wrong failure: %+v", row)
 	}

@@ -62,6 +62,12 @@ type Client struct {
 // while staying under the runner's task budget.
 const DefaultLivenessTimeout = 300 * time.Second
 
+// DefaultDialTimeout bounds how long a Unix-socket dial waits before
+// returning an error. A wedged daemon would otherwise hang the bench
+// forever. 5s: short enough to fail fast, long enough for a healthy daemon
+// to accept the connection.
+const DefaultDialTimeout = 5 * time.Second
+
 // ErrTurnStalled is returned by ChatAsync when no turn.terminal event
 // arrives within Client.LivenessTimeout. Use errors.Is to detect it; the
 // runner maps it to the "stalled" error_kind.
@@ -123,7 +129,7 @@ func (c *Client) liveness() time.Duration {
 func (c *Client) Path() string { return c.path }
 
 func (c *Client) connect(ctx context.Context) error {
-	var d net.Dialer
+	d := net.Dialer{Timeout: DefaultDialTimeout}
 	conn, err := d.DialContext(ctx, "unix", c.path)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", c.path, err)
@@ -180,7 +186,12 @@ func (e *rpcError) Error() string {
 	return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
 }
 
-const maxRetries = 1 // reconnect once on a dead pipe
+const maxRetries = 2 // reconnect up to 2 times on transient dial failures
+
+// dialBackoff delays before each retry attempt: 250ms, 500ms.
+// Only connect-level errors (dial failures) trigger retries; HTTP-level
+// errors (frame write failures, read failures) are treated as fatal.
+var dialBackoff = []time.Duration{250 * time.Millisecond, 500 * time.Millisecond}
 
 func (c *Client) callLocked(ctx context.Context, method string, params, out any) error {
 	var rawParams json.RawMessage
@@ -195,7 +206,12 @@ func (c *Client) callLocked(ctx context.Context, method string, params, out any)
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if c.conn == nil {
 			if err := c.connect(ctx); err != nil {
-				return err
+				// Connect-level error: apply bounded backoff retry
+				if attempt < maxRetries {
+					time.Sleep(dialBackoff[attempt])
+					continue
+				}
+				return fmt.Errorf("dial %s: %w", c.path, err)
 			}
 		}
 
@@ -208,7 +224,7 @@ func (c *Client) callLocked(ctx context.Context, method string, params, out any)
 		}
 		if err := writeFrame(c.writer, data); err != nil {
 			c.drop()
-			continue // retry once with a fresh connection
+			continue // retry once with a fresh connection (frame write error)
 		}
 
 		type res struct {

@@ -66,7 +66,7 @@ func TestRunTaskRoutingEvidence(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 			defer cancel()
-			row := r.RunTask(ctx, &suite.Manifest{Suite: "routing"}, task, 1)
+			row, _ := r.RunTask(ctx, &suite.Manifest{Suite: "routing"}, task, 1)
 			if row.WorktreeKept {
 				t.Cleanup(func() {
 					if output, err := exec.Command("git", "-C", repo, "worktree", "remove", "--force", row.WorktreePath).CombinedOutput(); err != nil {

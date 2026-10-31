@@ -100,7 +100,7 @@ func routingRepairMediaEvidence(t *testing.T, identity string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	row := r.RunTask(context.Background(), m, m.Tasks[0], 1)
+	row, _ := r.RunTask(context.Background(), m, m.Tasks[0], 1)
 	if row.WorktreeKept && row.WorktreePath != "" {
 		t.Cleanup(func() {
 			_ = exec.Command("git", "-C", repo, "worktree", "remove", "--force", row.WorktreePath).Run()

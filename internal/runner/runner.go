@@ -110,9 +110,26 @@ func (r *Runner) RunSuite(ctx context.Context, m *suite.Manifest, filter string)
 
 	tasks := m.Select(filter, r.opt.IgnoreTags)
 	rows := make([]results.Row, 0, len(tasks))
+
+	// Track created worktrees for cleanup on context cancellation.
+	// Only worktrees with Keep=false need teardown; Keep=true worktrees
+	// are preserved by the caller's intent.
+	var worktrees []*isolate.Worktree
+	defer func() {
+		// If context was cancelled mid-suite, teardown any worktrees
+		// that weren't explicitly kept (KeepFailed / --keep semantics
+		// survive: kept worktrees are never touched here).
+		if ctx.Err() != nil {
+			teardownUnkeptWorktrees(worktrees)
+		}
+	}()
+
 	for _, t := range tasks {
 		for attempt := 1; attempt <= r.opt.Attempts; attempt++ {
-			row := r.RunTask(ctx, m, t, attempt)
+			row, wt := r.RunTask(ctx, m, t, attempt)
+			if wt != nil {
+				worktrees = append(worktrees, wt)
+			}
 			if row != nil {
 				if err := appendRow(filepath.Join(outDir, "results.jsonl"), *row); err != nil {
 					return outDir, rows, err
@@ -139,13 +156,13 @@ func (r *Runner) RunSuite(ctx context.Context, m *suite.Manifest, filter string)
 }
 
 // RunTask performs one attempt of one task.
-func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, attempt int) *results.Row {
+func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, attempt int) (*results.Row, *isolate.Worktree) {
 	start := time.Now()
 	name := fmt.Sprintf("%s-%s-a%d", m.Suite, t.ID, attempt)
 
 	wt, err := r.mgr.Create(r.opt.RepoPath, name)
 	if err != nil {
-		return errRow(m, t, attempt, start, "error", "worktree: "+err.Error())
+		return errRow(m, t, attempt, start, "error", "worktree: "+err.Error()), nil
 	}
 	seed := int64(0)
 	if len(t.Seeds) > 0 {
@@ -165,7 +182,7 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	}()
 
 	if err := t.ApplySetup(wt.Path); err != nil {
-		return r.finishErr(wt, row, m, t, attempt, "error", "fixture setup: "+err.Error(), nil)
+		return r.finishErr(wt, row, m, t, attempt, "error", "fixture setup: "+err.Error(), nil), wt
 	}
 
 	client := daemonclient.NewDefault()
@@ -174,7 +191,7 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	pingCtx, cancelPing := context.WithTimeout(ctx, 5*time.Second)
 	if err := client.Ping(pingCtx); err != nil {
 		cancelPing()
-		return r.finishErr(wt, row, m, t, attempt, "error", "daemon unreachable: "+err.Error(), nil)
+		return r.finishErr(wt, row, m, t, attempt, "error", "daemon unreachable: "+err.Error(), nil), wt
 	}
 	cancelPing()
 
@@ -190,14 +207,14 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 		cancelGate()
 		if err != nil {
 			return r.finishErr(wt, row, m, t, attempt, "error",
-				"deterministic gate: status check failed: "+err.Error(), nil)
+				"deterministic gate: status check failed: "+err.Error(), nil), wt
 		}
 		if on, _ := st["deterministic_tools"].(bool); !on {
 			return r.finishErr(wt, row, m, t, attempt, "error",
 				"deterministic gate: task requires tools.cached_fetch but daemon reports "+
 					"deterministic_tools=false; set [agent.tools].deterministic_tools=true in the daemon "+
 					"config (or MEEPT_DETERMINISTIC_TOOLS=1 in the daemon env) and set "+
-					"MEEPT_TOOL_CACHE_DIR to the fixtures directory", nil)
+					"MEEPT_TOOL_CACHE_DIR to the fixtures directory", nil), wt
 		}
 		row.DeterministicFetch = true
 	}
@@ -241,7 +258,7 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	})
 	cancelSub()
 	if err != nil {
-		return r.finishErr(wt, row, m, t, attempt, "error", "bus subscribe: "+err.Error(), nil)
+		return r.finishErr(wt, row, m, t, attempt, "error", "bus subscribe: "+err.Error(), nil), wt
 	}
 	transcript := &results.Transcript{
 		Suite: m.Suite, TaskID: t.ID, Attempt: attempt, Seed: seed,
@@ -369,21 +386,21 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	transcript.EndedAt = time.Now()
 	if chatErr != nil {
 		if errors.Is(chatErr, daemonclient.ErrTurnStalled) {
-			return r.finishErr(wt, row, m, t, attempt, "error", "turn stalled: no terminal event within the liveness window (task may still complete daemon-side)", turnEvents, transcript)
+			return r.finishErr(wt, row, m, t, attempt, "error", "turn stalled: no terminal event within the liveness window (task may still complete daemon-side)", turnEvents, transcript), wt
 		}
 		if ctx.Err() != nil || isDeadline(chatCtx) {
-			return r.finishErr(wt, row, m, t, attempt, "timeout", chatErr.Error(), turnEvents, transcript)
+			return r.finishErr(wt, row, m, t, attempt, "timeout", chatErr.Error(), turnEvents, transcript), wt
 		}
-		return r.finishErr(wt, row, m, t, attempt, "error", "chat: "+chatErr.Error(), turnEvents, transcript)
+		return r.finishErr(wt, row, m, t, attempt, "error", "chat: "+chatErr.Error(), turnEvents, transcript), wt
 	}
 	if result != nil && result.Status == "timeout" {
-		return r.finishErr(wt, row, m, t, attempt, "timeout", "agent: terminal status=timeout", turnEvents, transcript)
+		return r.finishErr(wt, row, m, t, attempt, "timeout", "agent: terminal status=timeout", turnEvents, transcript), wt
 	}
 	if resp.Error != "" {
-		return r.finishErr(wt, row, m, t, attempt, "error", "agent: "+resp.Error, turnEvents, transcript)
+		return r.finishErr(wt, row, m, t, attempt, "error", "agent: "+resp.Error, turnEvents, transcript), wt
 	}
 	if result == nil || result.Status != "completed" {
-		return r.finishErr(wt, row, m, t, attempt, "error", "agent: terminal status is not completed", turnEvents, transcript)
+		return r.finishErr(wt, row, m, t, attempt, "error", "agent: terminal status is not completed", turnEvents, transcript), wt
 	}
 	transcript.FinalReply = resp.Reply
 	transcript.EndedAt = time.Now()
@@ -498,7 +515,7 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	} else if err := wt.Teardown(); err != nil {
 		r.opt.Logf("teardown %s: %v", name, err)
 	}
-	return row
+	return row, wt
 }
 
 // routingChecks checks only declared expectations, never treats absent fields
@@ -1277,4 +1294,16 @@ func firstNonEmptyJSON(vals ...json.RawMessage) json.RawMessage {
 		}
 	}
 	return nil
+}
+
+// teardownUnkeptWorktrees tears down every worktree the suite created
+// that the caller did not explicitly keep. RunSuite calls it when the
+// context is cancelled mid-suite so Ctrl-C does not leak scratch
+// worktrees. Kept worktrees (KeepFailed / --keep) are never touched.
+func teardownUnkeptWorktrees(worktrees []*isolate.Worktree) {
+	for _, wt := range worktrees {
+		if wt != nil && !wt.Keep {
+			_ = wt.Teardown()
+		}
+	}
 }

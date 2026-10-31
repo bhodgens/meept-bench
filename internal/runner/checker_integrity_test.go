@@ -28,7 +28,7 @@ func TestRoutingRepairCheckerReplacementCannotPass(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	row := r.RunTask(context.Background(), m, task, 1)
+	row, _ := r.RunTask(context.Background(), m, task, 1)
 	if row.Passed || row.Verdict != "fail" || len(row.Checks) != 1 || passedCheck(row.Checks[0]) {
 		t.Fatalf("replacement fabricated success: %+v", row)
 	}
@@ -53,7 +53,7 @@ func TestRoutingRepairTrustedCheckerAcceptsRealFixtureWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	row := r.RunTask(context.Background(), m, task, 1)
+	row, _ := r.RunTask(context.Background(), m, task, 1)
 	if !row.Passed {
 		t.Fatalf("real fixture work rejected: %+v", row)
 	}
