@@ -106,7 +106,7 @@ func run(args []string) {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	suitePath := fs.String("suite", "", "suite manifest path")
 	taskFilter := fs.String("task", "", "task ID substring filter")
-	attempts := fs.Int("attempts", 1, "attempts per task")
+	attempts := fs.Int("attempts", 1, "attempts per task (must be >= 1)")
 	model := fs.String("model", "", "model alias override")
 	repo := fs.String("repo", "", "source repo for worktrees")
 	scratch := fs.String("scratch", os.Getenv("HOME")+"/.meept-bench", "worktree scratch root (keep under ~ so daemon security allowlists like allowed_paths=[\"~/*\"] cover it)")
@@ -120,6 +120,10 @@ func run(args []string) {
 
 	if *suitePath == "" {
 		fmt.Fprintln(os.Stderr, "run: --suite is required")
+		os.Exit(2)
+	}
+	if *attempts < 1 {
+		fmt.Fprintln(os.Stderr, "run: --attempts must be >= 1")
 		os.Exit(2)
 	}
 	m, err := suite.Load(*suitePath)
@@ -152,6 +156,17 @@ func run(args []string) {
 	outDir, rows, err := r.RunSuite(ctx, m, *taskFilter)
 	if err != nil && len(rows) == 0 {
 		fmt.Fprintf(os.Stderr, "run: %v\n", err)
+		os.Exit(1)
+	}
+	// Check for any failed tasks. If any row has Passed==false, exit 1.
+	failed := 0
+	for _, r := range rows {
+		if !r.Passed {
+			failed++
+		}
+	}
+	if failed > 0 {
+		fmt.Fprintf(os.Stderr, "run: %d/%d tasks failed\n", failed, len(rows))
 		os.Exit(1)
 	}
 	sc, err := scorecard.Build(m.Suite, rows)

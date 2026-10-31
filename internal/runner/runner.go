@@ -63,6 +63,21 @@ func New(opt Options) (*Runner, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Validate that the resolved scratch root is not inside the repoPath tree.
+	// This prevents worktrees from landing inside the repo (e.g. when CWD is inside the repo).
+	resolvedScratch, err := filepath.EvalSymlinks(mgr.Root)
+	if err != nil {
+		return nil, fmt.Errorf("scratch root symlink validation: %w", err)
+	}
+	repoAbs, err := filepath.Abs(opt.RepoPath)
+	if err != nil {
+		return nil, err
+	}
+	// Check if resolvedScratch is inside repoAbs.
+	rel, err := filepath.Rel(repoAbs, resolvedScratch)
+	if err == nil && rel != "" && !strings.HasPrefix(rel, "..") {
+		return nil, fmt.Errorf("scratch root %q is inside repoPath %q; worktrees would land inside the repo tree", resolvedScratch, repoAbs)
+	}
 	var judge checkers.Judge
 	if opt.JudgeCmd != "" {
 		judge, err = checkers.NewCmdJudge(opt.JudgeCmd)

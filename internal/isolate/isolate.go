@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 )
 
 // Worktree is a per-attempt checkout.
@@ -25,10 +26,25 @@ func NewManager(root string) (*Manager, error) {
 	if root == "" {
 		return nil, fmt.Errorf("scratch root is required")
 	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	// Resolve to absolute path.
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
 		return nil, err
 	}
-	return &Manager{Root: root}, nil
+	// Ensure the directory exists before resolving symlinks.
+	if err := os.MkdirAll(absRoot, 0o755); err != nil {
+		return nil, err
+	}
+	// Resolve symlinks.
+	resolvedRoot, err := filepath.EvalSymlinks(absRoot)
+	if err != nil {
+		return nil, fmt.Errorf("scratch root symlink resolution: %w", err)
+	}
+	// Ensure the resolved root is not inside the repoPath tree.
+	// This check is performed by the caller (runner.New) who passes RepoPath.
+	// We store the resolved path for later use.
+	// (MkdirAll already created absRoot; resolvedRoot is the canonical path.)
+	return &Manager{Root: resolvedRoot}, nil
 }
 
 func run(dir string, args ...string) ([]byte, error) {
@@ -56,6 +72,26 @@ func (m *Manager) Create(repoPath, name string) (*Worktree, error) {
 		return nil, err
 	}
 	dir := filepath.Join(m.Root, sanitize(name))
+
+	// Concurrent worktree collision guard: if the dir exists, check if it's
+	// owned by another process via a .bench-owner file.
+	if _, err := os.Stat(dir); err == nil {
+		ownerFile := filepath.Join(dir, ".bench-owner")
+		if data, err := os.ReadFile(ownerFile); err == nil {
+			if pid, err := parsePID(string(data)); err == nil {
+				// Check if the owner PID is still alive.
+				if kill(pid, 0) == nil {
+					// Another process owns this worktree — refuse.
+					return nil, fmt.Errorf("worktree %q already exists and is owned by live PID %d; use --scratch to pick a different root or wait for the other run to complete", dir, pid)
+				}
+				// Owner is dead — reclaim by removing the stale worktree.
+				if err := os.RemoveAll(dir); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+
 	if err := os.RemoveAll(dir); err != nil {
 		return nil, err
 	}
@@ -67,7 +103,28 @@ func (m *Manager) Create(repoPath, name string) (*Worktree, error) {
 	if _, err := run(abs, "worktree", "add", "-b", branch, dir, "HEAD"); err != nil {
 		return nil, err
 	}
+	// Write owner PID for concurrent collision detection.
+	ownerFile := filepath.Join(dir, ".bench-owner")
+	if err := os.WriteFile(ownerFile, []byte(fmt.Sprintf("%d", os.Getpid())), 0o644); err != nil {
+		// Non-fatal; the worktree is still usable, just less protected.
+	}
 	return &Worktree{Root: m.Root, RepoPath: abs, Path: dir, Branch: branch}, nil
+}
+
+// parsePID parses a PID from a string.
+func parsePID(s string) (int, error) {
+	var pid int
+	_, err := fmt.Sscanf(s, "%d", &pid)
+	return pid, err
+}
+
+// kill sends signal 0 to pid (probe only).
+func kill(pid int, sig int) error {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	return p.Signal(syscall.Signal(sig))
 }
 
 // Teardown removes the worktree unless Keep is set.
