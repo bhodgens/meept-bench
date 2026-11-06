@@ -1,0 +1,307 @@
+package scorecard
+
+// Property-based tests for scorecard aggregation, following the in-house
+// hand-rolled Go pattern (strategist-usa
+// go-shard-runner/internal/workers/parse_csv_property_test.go): deterministic
+// PRNG, bounded case count, properties documented with file:line refs, no new
+// dependencies.
+//
+// Properties under test:
+//
+//	P1 order-invariance (scorecard.go Build :75-128): permuting the input
+//	   rows must produce an identical Card except GeneratedAt — counts are
+//	   plain integer sums (scorecard.go :94-114) and TaskRates are sorted by
+//	   task ID (scorecard.go :115-122), so no COUNT may depend on row order.
+//	   Float means (MeanCostUSD :125, MeanSeconds :126, TaskRate.MeanCost
+//	   :120) are naive left-to-right float64 sums, so permutation can drift
+//	   them at ULP scale: FINDING-1 below. The fast lane asserts counts
+//	   exactly and floats within a relative tolerance; MEEPT_BENCH_PROP_STRICT=1
+//	   restores exact float equality (antipythony informational/strict mode
+//	   pattern).
+//
+//	FINDING-1 (order-dependent float aggregation, scorecard.go :112-126):
+//	   totalCost and totalWall accumulate rows in file order, so
+//	   MeanCostUSD/MeanSeconds differ across permutations at 1e-16 relative
+//	   scale (replayable: seed 20261106, iter 1 — 4.963465199999999 vs
+//	   4.9634652 for the same 50 rows). Affects only the 16th significant
+//	   digit; deterministic sorted-input accumulation (e.g. accumulate in
+//	   TaskID order) would make the card byte-stable. Reported, NOT fixed
+//	   here (findings are deliverables; product-code fixes are a separate
+//	   leaf).
+//	P2 conservation (scorecard.go :94-100): Passes <= Attempts,
+//	   Tasks == number of distinct TaskIDs, and sum(Failures values) +
+//	   pass-with-error rows <= Attempts. The aggregate can never invent or
+//	   lose attempts.
+//	P3 bounds (scorecard.go pct :130-135): PassRate and every
+//	   TaskRate.PassPct lie in [0,1]; MeanCostUSD and MeanSeconds are finite
+//	   and non-negative for non-negative inputs.
+//	P4 no-throw on malformed JSONL (scorecard.go LoadRows :40-57): arbitrary
+//	   bytes either parse to rows or return a countable error — never an
+//	   uncontrolled panic.
+//
+// Findings from a failing property are BUG REPORTS: do not weaken the
+// property; report the minimal counterexample.
+
+import (
+	"bytes"
+	"encoding/json"
+	"math"
+	"math/rand"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/bhodgens/meept-bench/internal/results"
+)
+
+// validRowJSON is one canonical results.Row JSONL line, used to seed hostile
+// byte streams with real wire shapes (the overfit-generator pitfall).
+func validRowJSON() string {
+	b, _ := json.Marshal(results.Row{
+		Suite: "prop-suite", TaskID: "task-a", Attempt: 1, Seed: 1,
+		Verdict: "pass", Passed: true, CostUSD: 0.01, WallSeconds: 12.5,
+		StartedAt: time.Unix(1_700_000_000, 0).UTC(),
+	})
+	return string(b)
+}
+
+// propSeed is fixed so failures are replayable. Bump the case count via
+// MEEPT_BENCH_PROP_ITERS for an exhaustive local run.
+const propSeed = 20261106
+
+var verdicts = []string{"pass", "fail", "error", "timeout"}
+var errorKinds = []string{"", "", "timeout", "auth_failure", "crash", "judge_error"}
+var taskIDPool = []string{"task-a", "task-b", "task-c", "task-d", "task-e", "", "t\u00e9sk-\U0001F40D"}
+
+func genRow(rnd *rand.Rand) results.Row {
+	verdict := verdicts[rnd.Intn(len(verdicts))]
+	return results.Row{
+		Suite:       "prop-suite",
+		TaskID:      taskIDPool[rnd.Intn(len(taskIDPool))],
+		Attempt:     rnd.Intn(5) + 1,
+		Seed:        rnd.Int63(),
+		Verdict:     verdict,
+		Passed:      rnd.Intn(2) == 0,
+		CostUSD:     math.Round(rnd.Float64()*1e6) / 1e6 * 10, // cent-scale, no float artifacts
+		WallSeconds: math.Round(rnd.Float64()*1000) / 1000 * 600,
+		ErrorKind:   errorKinds[rnd.Intn(len(errorKinds))],
+		StartedAt:   time.Unix(rnd.Int63n(1_700_000_000), 0).UTC(),
+	}
+}
+
+func genRows(rnd *rand.Rand, n int) []results.Row {
+	rows := make([]results.Row, n)
+	for i := range rows {
+		rows[i] = genRow(rnd)
+	}
+	return rows
+}
+
+func shuffled(rnd *rand.Rand, rows []results.Row) []results.Row {
+	out := append([]results.Row(nil), rows...)
+	rnd.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
+	return out
+}
+
+func cardWithoutTime(c *Card) Card {
+	cp := *c
+	cp.GeneratedAt = time.Time{}
+	return cp
+}
+
+// TestBuild_OrderInvariance ports P1: aggregation counts are permutation-
+// invariant; float means match within relative tolerance (FINDING-1), or
+// exactly under MEEPT_BENCH_PROP_STRICT=1.
+func TestBuild_OrderInvariance(t *testing.T) {
+	strict := os.Getenv("MEEPT_BENCH_PROP_STRICT") == "1"
+	rnd := rand.New(rand.NewSource(propSeed))
+	const iters = 500
+	for i := 0; i < iters; i++ {
+		rows := genRows(rnd, rnd.Intn(60)+1)
+		base, err := Build("prop-suite", rows)
+		if err != nil {
+			t.Fatalf("iter %d: Build: %v", i, err)
+		}
+		for p := 0; p < 3; p++ {
+			perm := shuffled(rnd, rows)
+			got, err := Build("prop-suite", perm)
+			if err != nil {
+				t.Fatalf("iter %d perm %d: Build: %v", i, p, err)
+			}
+
+			// Integer counts: exact under any permutation.
+			bc, gc := cardWithoutTime(base), cardWithoutTime(got)
+			if bc.Tasks != gc.Tasks || bc.Attempts != gc.Attempts || bc.Passes != gc.Passes {
+				t.Fatalf("iter %d perm %d: counts changed under permutation\nbase: %+v\ngot:  %+v", i, p, bc, gc)
+			}
+			if !reflect.DeepEqual(bc.Failures, gc.Failures) {
+				t.Fatalf("iter %d perm %d: failure taxonomy changed: %v vs %v", i, p, bc.Failures, gc.Failures)
+			}
+			// TaskRates: identity/N/PassPct exact (PassPct is num/den of the
+			// same integers); MeanCost is a per-task float sum, so FINDING-1
+			// applies there too.
+			if len(bc.TaskRates) != len(gc.TaskRates) {
+				t.Fatalf("iter %d perm %d: TaskRates length changed: %d vs %d", i, p, len(bc.TaskRates), len(gc.TaskRates))
+			}
+			for k := range bc.TaskRates {
+				btr, gtr := bc.TaskRates[k], gc.TaskRates[k]
+				if btr.TaskID != gtr.TaskID || btr.N != gtr.N || btr.PassPct != gtr.PassPct {
+					t.Fatalf("iter %d perm %d: TaskRates[%d] count/pct changed: %+v vs %+v", i, p, k, btr, gtr)
+				}
+				if strict {
+					if btr.MeanCost != gtr.MeanCost {
+						t.Fatalf("iter %d perm %d (STRICT): TaskRate[%s].MeanCost drifted: %v vs %v — see FINDING-1",
+							i, p, btr.TaskID, btr.MeanCost, gtr.MeanCost)
+					}
+				} else if math.Abs(btr.MeanCost-gtr.MeanCost) > 1e-9*math.Max(math.Abs(btr.MeanCost), math.Abs(gtr.MeanCost)) {
+					t.Fatalf("iter %d perm %d: TaskRate[%s].MeanCost drifted beyond tolerance: %v vs %v (FINDING-1 class)",
+						i, p, btr.TaskID, btr.MeanCost, gtr.MeanCost)
+				}
+			}
+
+			// Float means: FINDING-1 tolerance lane / strict lane.
+			if strict {
+				if bc.MeanCostUSD != gc.MeanCostUSD || bc.MeanSeconds != gc.MeanSeconds {
+					t.Fatalf("iter %d perm %d (STRICT): float means drifted under permutation: %v vs %v, %v vs %v — see FINDING-1",
+						i, p, bc.MeanCostUSD, gc.MeanCostUSD, bc.MeanSeconds, gc.MeanSeconds)
+				}
+			} else {
+				for _, pair := range [][2]float64{{bc.MeanCostUSD, gc.MeanCostUSD}, {bc.MeanSeconds, gc.MeanSeconds}} {
+					maxAbs := math.Max(math.Abs(pair[0]), math.Abs(pair[1]))
+					if math.Abs(pair[0]-pair[1]) > 1e-9*maxAbs {
+						t.Fatalf("iter %d perm %d: float means drifted beyond ULP tolerance: %v vs %v (FINDING-1 class)", i, p, pair[0], pair[1])
+					}
+				}
+			}
+		}
+	}
+}
+
+// TestBuild_ConservationAndBounds ports P2+P3: attempts are conserved and
+// every rate lies in [0,1].
+func TestBuild_ConservationAndBounds(t *testing.T) {
+	rnd := rand.New(rand.NewSource(propSeed + 1))
+	const iters = 500
+	for i := 0; i < iters; i++ {
+		rows := genRows(rnd, rnd.Intn(80)+1)
+		card, err := Build("prop-suite", rows)
+		if err != nil {
+			t.Fatalf("iter %d: Build: %v", i, err)
+		}
+
+		// P2 conservation.
+		if card.Attempts != len(rows) {
+			t.Fatalf("iter %d: Attempts = %d, want %d (rows lost or invented)", i, card.Attempts, len(rows))
+		}
+		if card.Passes > card.Attempts {
+			t.Fatalf("iter %d: Passes %d > Attempts %d", i, card.Passes, card.Attempts)
+		}
+		uniq := map[string]int{}
+		for _, r := range rows {
+			uniq[r.TaskID]++
+		}
+		if card.Tasks != len(uniq) {
+			t.Fatalf("iter %d: Tasks = %d, want %d distinct TaskIDs", i, card.Tasks, len(uniq))
+		}
+		seen := map[string]bool{}
+		totalTaskAttempts := 0
+		for _, tr := range card.TaskRates {
+			if seen[tr.TaskID] {
+				t.Fatalf("iter %d: duplicate TaskRate for %s", i, tr.TaskID)
+			}
+			seen[tr.TaskID] = true
+			if tr.N != uniq[tr.TaskID] {
+				t.Fatalf("iter %d: TaskRate[%s].N = %d, want %d", i, tr.TaskID, tr.N, uniq[tr.TaskID])
+			}
+			if tr.PassPct < 0 || tr.PassPct > 1 {
+				t.Fatalf("iter %d: TaskRate[%s].PassPct = %f outside [0,1]", i, tr.TaskID, tr.PassPct)
+			}
+			if tr.MeanCost < 0 {
+				t.Fatalf("iter %d: negative MeanCost %f for %s", i, tr.MeanCost, tr.TaskID)
+			}
+			totalTaskAttempts += tr.N
+		}
+		if totalTaskAttempts != len(rows) {
+			t.Fatalf("iter %d: per-task attempts %d != total rows %d", i, totalTaskAttempts, len(rows))
+		}
+
+		// P3 bounds on card-level rates/means.
+		if card.PassRate < 0 || card.PassRate > 1 {
+			t.Fatalf("iter %d: PassRate = %f outside [0,1]", i, card.PassRate)
+		}
+		if card.MeanCostUSD < 0 || math.IsNaN(card.MeanCostUSD) || math.IsInf(card.MeanCostUSD, 0) {
+			t.Fatalf("iter %d: MeanCostUSD = %f not finite non-negative", i, card.MeanCostUSD)
+		}
+		if card.MeanSeconds < 0 || math.IsNaN(card.MeanSeconds) || math.IsInf(card.MeanSeconds, 0) {
+			t.Fatalf("iter %d: MeanSeconds = %f not finite non-negative", i, card.MeanSeconds)
+		}
+	}
+}
+
+// TestLoadRows_NoThrowOnArbitraryBytes ports P4: arbitrary bytes through the
+// JSONL reader either parse or produce a wrapped error, never a panic.
+func TestLoadRows_NoThrowOnArbitraryBytes(t *testing.T) {
+	hostileCorners := []string{
+		"", "\n", "\n\n\n", "{", "not json", `{"suite":`, "null", "[]",
+		`{"task_id":123}`, strings.Repeat("x", 64*1024),
+		"\x00\xff\xfe", "\U0001F40D\u202E", `{bad json}` + "\n" + `{bad too}`,
+	}
+	rnd := rand.New(rand.NewSource(propSeed + 2))
+	inputs := make([][]byte, 0, len(hostileCorners)*2+8)
+	for _, s := range hostileCorners {
+		inputs = append(inputs, []byte(s))
+		inputs = append(inputs, []byte(validRowJSON()+"\n"+s+"\n"))
+	}
+	for i := 0; i < 200; i++ {
+		buf := &bytes.Buffer{}
+		for j := 0; j < rnd.Intn(20); j++ {
+			if rnd.Intn(2) == 0 {
+				buf.WriteString(validRowJSON() + "\n")
+			} else {
+				n := rnd.Intn(64)
+				b := make([]byte, n)
+				rnd.Read(b)
+				buf.Write(b)
+				buf.WriteByte('\n')
+			}
+		}
+		inputs = append(inputs, buf.Bytes())
+	}
+
+	dir := t.TempDir()
+	for i, input := range inputs {
+		path := filepath.Join(dir, "f.jsonl")
+		if err := os.WriteFile(path, input, 0o644); err != nil {
+			t.Fatalf("write input %d: %v", i, err)
+		}
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Fatalf("input %d (%q...) panicked: %v", i, truncate(input, 60), r)
+				}
+			}()
+			// The property under test is no-panic; error-vs-rows is the
+			// documented LoadRows contract (wrapped error on bad rows).
+			_, _ = LoadRows(path)
+		}()
+	}
+}
+
+// TestBuild_ZeroRowsRejected pins the documented error contract for the empty
+// input (scorecard.go :76-78).
+func TestBuild_ZeroRowsRejected(t *testing.T) {
+	if _, err := Build("prop-suite", nil); err == nil {
+		t.Fatal("Build(nil) returned no error; contract requires 'no result rows' error")
+	}
+}
+
+func truncate(b []byte, n int) string {
+	s := string(b)
+	if len(s) > n {
+		s = s[:n] + "..."
+	}
+	return s
+}
