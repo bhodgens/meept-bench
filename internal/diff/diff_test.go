@@ -93,6 +93,33 @@ func TestCompareTransitions(t *testing.T) {
 	}
 }
 
+// TestBest_NoPassUsesLastRow pins the FINDING-2 contract: when a task has no
+// passing attempt, verdict and cost come from the LAST row of that task in
+// file order — which for chronologically appended results.jsonl files means
+// "latest attempt/run". This is intentional (see the ORDER CONTRACT doc on
+// Compare); reversing row order within a task must visibly change the verdict.
+func TestBest_NoPassUsesLastRow(t *testing.T) {
+	early := row("t9", 1, "fail", 10, 0.01)
+	late := row("t9", 2, "error", 30, 0.20)
+
+	cur := []results.Row{row("t0", 1, "pass", 1, 0.001)}
+	chronological := byID(Compare([]results.Row{early, late}, cur))["t9"]
+	reversed := byID(Compare([]results.Row{late, early}, cur))["t9"]
+
+	// t9 exists only in the baseline, so Baseline holds best()'s no-pass
+	// verdict: the last row's, in file order.
+	if chronological.Baseline != "error" {
+		t.Errorf("chronological Baseline = %q, want error (last row's verdict)", chronological.Baseline)
+	}
+	if chronological.BaselineCost != 0.20 {
+		t.Errorf("chronological BaselineCost = %v, want 0.20 (last row's cost)", chronological.BaselineCost)
+	}
+	if reversed.Baseline != "fail" || reversed.BaselineCost != 0.01 {
+		t.Errorf("reversed baseline = %q/%v, want fail/0.01 (order is load-bearing within a task)",
+			reversed.Baseline, reversed.BaselineCost)
+	}
+}
+
 func TestCompareBestAttemptSelection(t *testing.T) {
 	base := []results.Row{
 		row("t1", 1, "fail", 20, 0.02),

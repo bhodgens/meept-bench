@@ -32,15 +32,16 @@ package diff
 //	   order inside a task is semantically load-bearing, not incidental —
 //	   permuting it would test a contract the code does not claim.
 //
-//	FINDING-2 (attempt-order sensitivity of no-pass verdicts, diff.go :88):
-//	   for tasks with no passing attempt, Verdict/Cost come from whichever
-//	   row happens to be last in the file. results.jsonl consumers that
-//	   reorder, merge, or shard rows will see verdict flips (e.g. "fail" vs
-//	   "error") and cost changes with identical attempt content. Replayable:
-//	   seed 20261106+3, iter 3 (task-b: fail/error flip, cost 59.95 vs
-//	   56.36 under within-task permutation). Likely intentional (attempts
-//	   are appended chronologically), but undocumented at the Compare entry
-//	   point; a doc comment on Compare would prevent silent misuse.
+//	FINDING-2 (RESOLVED as intentional — documented, 2026-11-06): for tasks
+//	   with no passing attempt, Verdict/Cost come from whichever row happens
+//	   to be last in the file (replayable: seed 20261106+3, iter 3 — task-b
+//	   fail/error flip, cost 59.95 vs 56.36 under within-task permutation).
+//	   Triage: results.jsonl is written strictly chronologically (runner.go
+//	   appendRow, O_APPEND, attempts in order), so "last row" = "latest
+//	   attempt/run" — TestCompareRepeatedRunsSameTask pins later-row-wins for
+//	   appended re-runs, and max-attempt-number tie-breaking would discard
+//	   that signal. The contract is now documented at Compare (diff.go ORDER
+//	   CONTRACT) and pinned by TestBest_NoPassUsesLastRow; behavior unchanged.
 //
 // Findings from a failing property are BUG REPORTS: do not weaken the
 // property; report the minimal counterexample.

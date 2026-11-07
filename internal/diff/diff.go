@@ -111,6 +111,19 @@ func median(v []float64) float64 {
 
 // Compare consumes raw rows and returns one TaskDiff per task ID seen in
 // either file, sorted by TaskID.
+//
+// ORDER CONTRACT (FINDING-2 triage, 2026-11-06): BETWEEN tasks, row order is
+// irrelevant — rows are grouped by TaskID and output is sorted. WITHIN a
+// task, row order IS semantically load-bearing: best() reports the LAST
+// row's verdict/cost when no attempt passed (see best's doc). results.jsonl
+// is written strictly chronologically (runner.go appendRow uses O_APPEND and
+// runs attempts in order), so "last" means "latest attempt", and repeated
+// suite runs against the same file keep later rows = later runs
+// (TestCompareRepeatedRunsSameTask pins this). Making Compare
+// order-insensitive within a task would discard the latest-run signal for
+// merged/sharded files, so the behavior is intentional; consumers that
+// reorder, merge out-of-order, or shard rows must restore chronological
+// order (e.g. sort by started_at) before calling Compare.
 func Compare(baseline, current []results.Row) []TaskDiff {
 	byTask := func(rows []results.Row) map[string][]results.Row {
 		m := make(map[string][]results.Row)

@@ -8,26 +8,23 @@ package scorecard
 //
 // Properties under test:
 //
-//	P1 order-invariance (scorecard.go Build :75-128): permuting the input
-//	   rows must produce an identical Card except GeneratedAt — counts are
-//	   plain integer sums (scorecard.go :94-114) and TaskRates are sorted by
-//	   task ID (scorecard.go :115-122), so no COUNT may depend on row order.
-//	   Float means (MeanCostUSD :125, MeanSeconds :126, TaskRate.MeanCost
-//	   :120) are naive left-to-right float64 sums, so permutation can drift
-//	   them at ULP scale: FINDING-1 below. The fast lane asserts counts
-//	   exactly and floats within a relative tolerance; MEEPT_BENCH_PROP_STRICT=1
-//	   restores exact float equality (antipythony informational/strict mode
-//	   pattern).
+//	P1 order-invariance (scorecard.go Build): permuting the input rows must
+//	   produce an identical Card except GeneratedAt — counts are plain
+//	   integer sums and TaskRates are sorted by task ID, so no COUNT may
+//	   depend on row order. Float means (MeanCostUSD, MeanSeconds,
+//	   TaskRate.MeanCost) are summed in a deterministic sort order
+//	   (lessAccum, scorecard.go) precisely so they too are permutation-
+//	   invariant and scorecard.json stays byte-stable for diffing. This lane
+//	   asserts EXACT float equality by default.
 //
-//	FINDING-1 (order-dependent float aggregation, scorecard.go :112-126):
-//	   totalCost and totalWall accumulate rows in file order, so
-//	   MeanCostUSD/MeanSeconds differ across permutations at 1e-16 relative
-//	   scale (replayable: seed 20261106, iter 1 — 4.963465199999999 vs
-//	   4.9634652 for the same 50 rows). Affects only the 16th significant
-//	   digit; deterministic sorted-input accumulation (e.g. accumulate in
-//	   TaskID order) would make the card byte-stable. Reported, NOT fixed
-//	   here (findings are deliverables; product-code fixes are a separate
-//	   leaf).
+//	FINDING-1 (RESOLVED 2026-11-06): totalCost/totalWall once accumulated
+//	   rows in file order, so MeanCostUSD/MeanSeconds drifted across
+//	   permutations at 1e-16 relative scale (replayable: seed 20261106,
+//	   iter 1 — 4.963465199999999 vs 4.9634652). Fixed in Build: rows are
+//	   copied and sorted by a total key (TaskID, Attempt, Seed, CostUSD,
+//	   WallSeconds) before summing, making the card byte-stable under any
+//	   permutation. The old tolerance lane is gone; strict equality IS the
+//	   default lane.
 //	P2 conservation (scorecard.go :94-100): Passes <= Attempts,
 //	   Tasks == number of distinct TaskIDs, and sum(Failures values) +
 //	   pass-with-error rows <= Attempts. The aggregate can never invent or
@@ -112,11 +109,11 @@ func cardWithoutTime(c *Card) Card {
 	return cp
 }
 
-// TestBuild_OrderInvariance ports P1: aggregation counts are permutation-
-// invariant; float means match within relative tolerance (FINDING-1), or
-// exactly under MEEPT_BENCH_PROP_STRICT=1.
+// TestBuild_OrderInvariance ports P1: the full Card (except GeneratedAt) must
+// be bit-identical under any permutation of the input rows — exact float
+// equality, no tolerance lane (FINDING-1 fixed via deterministic accumulation;
+// the old tolerance/strict split is gone).
 func TestBuild_OrderInvariance(t *testing.T) {
-	strict := os.Getenv("MEEPT_BENCH_PROP_STRICT") == "1"
 	rnd := rand.New(rand.NewSource(propSeed))
 	const iters = 500
 	for i := 0; i < iters; i++ {
@@ -125,58 +122,34 @@ func TestBuild_OrderInvariance(t *testing.T) {
 		if err != nil {
 			t.Fatalf("iter %d: Build: %v", i, err)
 		}
+		bc := cardWithoutTime(base)
 		for p := 0; p < 3; p++ {
 			perm := shuffled(rnd, rows)
 			got, err := Build("prop-suite", perm)
 			if err != nil {
 				t.Fatalf("iter %d perm %d: Build: %v", i, p, err)
 			}
-
-			// Integer counts: exact under any permutation.
-			bc, gc := cardWithoutTime(base), cardWithoutTime(got)
-			if bc.Tasks != gc.Tasks || bc.Attempts != gc.Attempts || bc.Passes != gc.Passes {
-				t.Fatalf("iter %d perm %d: counts changed under permutation\nbase: %+v\ngot:  %+v", i, p, bc, gc)
-			}
-			if !reflect.DeepEqual(bc.Failures, gc.Failures) {
-				t.Fatalf("iter %d perm %d: failure taxonomy changed: %v vs %v", i, p, bc.Failures, gc.Failures)
-			}
-			// TaskRates: identity/N/PassPct exact (PassPct is num/den of the
-			// same integers); MeanCost is a per-task float sum, so FINDING-1
-			// applies there too.
-			if len(bc.TaskRates) != len(gc.TaskRates) {
-				t.Fatalf("iter %d perm %d: TaskRates length changed: %d vs %d", i, p, len(bc.TaskRates), len(gc.TaskRates))
-			}
-			for k := range bc.TaskRates {
-				btr, gtr := bc.TaskRates[k], gc.TaskRates[k]
-				if btr.TaskID != gtr.TaskID || btr.N != gtr.N || btr.PassPct != gtr.PassPct {
-					t.Fatalf("iter %d perm %d: TaskRates[%d] count/pct changed: %+v vs %+v", i, p, k, btr, gtr)
-				}
-				if strict {
-					if btr.MeanCost != gtr.MeanCost {
-						t.Fatalf("iter %d perm %d (STRICT): TaskRate[%s].MeanCost drifted: %v vs %v — see FINDING-1",
-							i, p, btr.TaskID, btr.MeanCost, gtr.MeanCost)
-					}
-				} else if math.Abs(btr.MeanCost-gtr.MeanCost) > 1e-9*math.Max(math.Abs(btr.MeanCost), math.Abs(gtr.MeanCost)) {
-					t.Fatalf("iter %d perm %d: TaskRate[%s].MeanCost drifted beyond tolerance: %v vs %v (FINDING-1 class)",
-						i, p, btr.TaskID, btr.MeanCost, gtr.MeanCost)
-				}
-			}
-
-			// Float means: FINDING-1 tolerance lane / strict lane.
-			if strict {
-				if bc.MeanCostUSD != gc.MeanCostUSD || bc.MeanSeconds != gc.MeanSeconds {
-					t.Fatalf("iter %d perm %d (STRICT): float means drifted under permutation: %v vs %v, %v vs %v — see FINDING-1",
-						i, p, bc.MeanCostUSD, gc.MeanCostUSD, bc.MeanSeconds, gc.MeanSeconds)
-				}
-			} else {
-				for _, pair := range [][2]float64{{bc.MeanCostUSD, gc.MeanCostUSD}, {bc.MeanSeconds, gc.MeanSeconds}} {
-					maxAbs := math.Max(math.Abs(pair[0]), math.Abs(pair[1]))
-					if math.Abs(pair[0]-pair[1]) > 1e-9*maxAbs {
-						t.Fatalf("iter %d perm %d: float means drifted beyond ULP tolerance: %v vs %v (FINDING-1 class)", i, p, pair[0], pair[1])
-					}
-				}
+			gc := cardWithoutTime(got)
+			if !reflect.DeepEqual(bc, gc) {
+				t.Fatalf("iter %d perm %d: card not permutation-invariant (FINDING-1 regression)\nbase: %+v\ngot:  %+v", i, p, bc, gc)
 			}
 		}
+	}
+}
+
+// TestBuild_InputNotMutated pins that Build leaves the caller's row slice
+// untouched: the deterministic accumulation order sorts a private copy, so
+// callers may rely on their own ordering afterwards (the runner logs rows in
+// append order).
+func TestBuild_InputNotMutated(t *testing.T) {
+	rnd := rand.New(rand.NewSource(propSeed + 3))
+	rows := genRows(rnd, 40)
+	before := append([]results.Row(nil), rows...)
+	if _, err := Build("prop-suite", rows); err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !reflect.DeepEqual(rows, before) {
+		t.Fatal("Build mutated the caller's rows slice")
 	}
 }
 

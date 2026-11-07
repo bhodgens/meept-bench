@@ -71,7 +71,35 @@ func splitLines(b []byte) [][]byte {
 	return out
 }
 
+// lessAccum is the deterministic accumulation order for Build's float sums:
+// lexicographic by TaskID, Attempt, Seed, then the two summands themselves.
+// Two rows that compare equal under this ordering have identical CostUSD and
+// WallSeconds, so their relative order cannot change the accumulation
+// sequence — the sort is a total order on everything that feeds a float sum.
+func lessAccum(a, b results.Row) bool {
+	if a.TaskID != b.TaskID {
+		return a.TaskID < b.TaskID
+	}
+	if a.Attempt != b.Attempt {
+		return a.Attempt < b.Attempt
+	}
+	if a.Seed != b.Seed {
+		return a.Seed < b.Seed
+	}
+	if a.CostUSD != b.CostUSD {
+		return a.CostUSD < b.CostUSD
+	}
+	return a.WallSeconds < b.WallSeconds
+}
+
 // Build aggregates rows into a card.
+//
+// Deterministic accumulation: rows are summed in lessAccum order, not input
+// order, so MeanCostUSD, MeanSeconds, and TaskRate.MeanCost are bit-identical
+// under any permutation of the input rows (FINDING-1, fixed 2026-11-06: naive
+// left-to-right float64 accumulation drifted at 1e-16 relative scale, which
+// broke byte-stability of scorecard.json/md for diffing). Integer counts and
+// the failure taxonomy never depended on order; only the float sums did.
 func Build(suiteName string, rows []results.Row) (*Card, error) {
 	if len(rows) == 0 {
 		return nil, fmt.Errorf("no result rows")
@@ -79,6 +107,10 @@ func Build(suiteName string, rows []results.Row) (*Card, error) {
 	if suiteName == "" {
 		suiteName = rows[0].Suite
 	}
+	// Copy before sorting: Build must not mutate the caller's slice.
+	sumOrder := make([]results.Row, len(rows))
+	copy(sumOrder, rows)
+	sort.SliceStable(sumOrder, func(i, j int) bool { return lessAccum(sumOrder[i], sumOrder[j]) })
 	c := &Card{
 		Suite: suiteName, GeneratedAt: time.Now().UTC(),
 		Attempts: len(rows), Label: "self-run",
@@ -91,7 +123,7 @@ func Build(suiteName string, rows []results.Row) (*Card, error) {
 	byTask := map[string]*agg{}
 	var totalCost, totalWall float64
 	taskOrder := []string{}
-	for _, r := range rows {
+	for _, r := range sumOrder {
 		c.Tasks++ // attempts counted per row; unique tasks below
 		if r.Passed {
 			c.Passes++
