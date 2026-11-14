@@ -108,6 +108,13 @@ fi
 
 # --- rig layout ------------------------------------------------------------
 RIG=$(mktemp -d /tmp/meept-scratch-rig.XXXXXX)
+# Canonicalize NOW: on macOS /tmp is a symlink to /private/tmp, the daemon
+# resolves worktree paths with symlinks (security/fence sees /private/tmp/...
+# ) while allowed_paths match LITERALLY against the config strings. A
+# /tmp-rendered allowlist therefore never matches the /private/tmp-resolved
+# request path - every fs tool call is fence-denied and the whole suite
+# fails 'pattern not found'.
+RIG=$(cd "$RIG" && pwd -P)
 RIG_HOME=$RIG/home/.meept          # MEEPT_HOME for the scratch daemon
 RIG_SOCK=$RIG_HOME/meept.sock
 SCRATCH=$RIG/worktrees             # bench worktree scratch root
