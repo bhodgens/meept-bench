@@ -30,6 +30,9 @@
 #                      LFM2.5-8B-A1B-Q4_K_M.gguf)
 #   MEEPT_RIG_REPO    repo tasks fork worktrees from (default ~/git/meept)
 #   MEEPT_RIG_AGENTS  agents dir to copy (default <meept-repo>/config/agents)
+#   MEEPT_RIG_CTX     rig context window tokens      (default 65536)
+#   MEEPT_RIG_LLAMA_BIN  llama-server binary (default: ~/.meept/deps/
+#                     llama.cpp/build/bin/llama-server when built, PATH otherwise)
 #
 # Ports: the rig NEVER binds the live runtime ports on this machine
 # (8080 chat, 8081 GUI TLS, 8082 prompt-router, 8084 extract, 8143 local
@@ -71,6 +74,26 @@ DAEMON_BIN=${MEEPT_DAEMON_BIN:-$MEEPT_REPO/bin/meept-daemon}
 RIG_MODEL=${MEEPT_RIG_MODEL:-/Volumes/LLMs/LiquidAI/LFM2.5-8B-A1B-GGUF/LFM2.5-8B-A1B-Q4_K_M.gguf}
 AGENTS_SRC=${MEEPT_RIG_AGENTS:-$MEEPT_REPO/config/agents}
 REPO=${MEEPT_RIG_REPO:-$MEEPT_REPO}
+# llama-server resolution: the meept-built llama.cpp in the dependency
+# prefix (make deps-llama installs it there — the SAME binary the live
+# daemon spawns, per ~/.meept/models.json5). Homebrew's llama-server b7730
+# predates LFM2.5's tool-call parser and falls back to a generic JSON
+# grammar whose prose branch lets turns answer without calling tools
+# (measured in the live models.json5 comment: 4/5 calls + prose escapes
+# vs this build's 5/5 structured). Fall back to PATH only when the
+# dependency build is absent. Override with MEEPT_RIG_LLAMA_BIN.
+if [ -x "$HOME/.meept/deps/llama.cpp/build/bin/llama-server" ]; then
+  LLAMA_BIN=${MEEPT_RIG_LLAMA_BIN:-$HOME/.meept/deps/llama.cpp/build/bin/llama-server}
+else
+  LLAMA_BIN=${MEEPT_RIG_LLAMA_BIN:-llama-server}
+fi
+# Rig context window (LLM/RAG-era prompt assembly reaches ~42k tokens, so
+# the old 32768 cap dead-parked every gate task: 'context size (41727)
+# exceeds model limit (32768)'). LFM2.5 serves 128k natively; 65536 is the
+# default with headroom, overridable. The rendered models.json5
+# context_limit and llama-server --ctx-size derive from ONE knob so they
+# can never drift apart.
+RIG_CTX=${MEEPT_RIG_CTX:-65536}
 
 [ -x "$DAEMON_BIN" ] || { echo "scratch-rig: daemon binary not found: $DAEMON_BIN (build it: cd $MEEPT_REPO && go build -o bin/meept-daemon ./cmd/meept-daemon)" >&2; exit 2; }
 
@@ -116,7 +139,7 @@ if [ "$NO_RUNTIME" = 1 ]; then
   LIFECYCLE='null'
 else
   [ -f "$RIG_MODEL" ] || { echo "scratch-rig: model file missing: $RIG_MODEL (use --no-runtime for a model-less boot)" >&2; exit 2; }
-  LIFECYCLE=$(MODEL_PATH="$RIG_MODEL" LLM_PORT="$LLM_PORT" PID_FILE="$RIG_HOME/run/llama.pid" python3 - <<'PYEOF'
+  LIFECYCLE=$(MODEL_PATH="$RIG_MODEL" LLM_PORT="$LLM_PORT" PID_FILE="$RIG_HOME/run/llama.pid" RIG_CTX="$RIG_CTX" LLAMA_BIN="$LLAMA_BIN" python3 - <<'PYEOF'
 import json, os
 print(json.dumps({
     "runtime": "llama-cpp",
@@ -124,9 +147,10 @@ print(json.dumps({
     "auto_start": True,
     "auto_stop_on_exit": True,
     "pid_file": os.environ["PID_FILE"],
-    "spawn_command": ["llama-server", "--model", os.environ["MODEL_PATH"],
+    "spawn_command": [os.environ["LLAMA_BIN"], "--model", os.environ["MODEL_PATH"],
                       "--port", os.environ["LLM_PORT"], "--host", "127.0.0.1",
-                      "--jinja", "--reasoning-budget", "0", "--ctx-size", "32768"],
+                      "--jinja", "--reasoning-budget", "0",
+                      "--ctx-size", os.environ["RIG_CTX"]],
     "spawn_timeout_seconds": 300,
     "health_check": {"endpoint": "/health", "interval_seconds": 10,
                      "timeout_seconds": 5, "unhealthy_threshold": 30},
@@ -136,9 +160,10 @@ PYEOF
 fi
 
 MODEL_NAME=$(basename "$RIG_MODEL")
-python3 - "$RIG" "$RIG_HOME" "$RIG_SOCK" "$HTTP_PORT" "$LLM_PORT" "$MODEL_NAME" "$LIFECYCLE" "$SCRATCH" <<'PYEOF'
+python3 - "$RIG" "$RIG_HOME" "$RIG_SOCK" "$HTTP_PORT" "$LLM_PORT" "$MODEL_NAME" "$LIFECYCLE" "$SCRATCH" "$RIG_CTX" <<'PYEOF'
 import json, sys
-rig, home, sock, http_port, llm_port, model_name, lifecycle, scratch = sys.argv[1:9]
+rig, home, sock, http_port, llm_port, model_name, lifecycle, scratch, rig_ctx = sys.argv[1:10]
+rig_ctx = int(rig_ctx)
 lifecycle = None if lifecycle == "null" else json.loads(lifecycle)
 
 cfg = {
@@ -167,7 +192,7 @@ provider = {
         "name": model_name,
         "capabilities": ["completion", "code", "reasoning", "tool_use"],
         "input_cost": 0.0, "output_cost": 0.0,
-        "context_limit": 32768, "max_output": 4096, "temperature": 0.7,
+        "context_limit": rig_ctx, "max_output": 4096, "temperature": 0.7,
     }},
 }
 if lifecycle is not None:
