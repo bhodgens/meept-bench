@@ -121,15 +121,12 @@
           "files": [
             "cwd.txt"
           ],
-          "pattern": "\\.meept-bench/|/tmp/meept-bench/"
+          "pattern": "^/"
         },
         {
-          "type": "exit_zero",
-          "command": [
-            "sh",
-            "-c",
-            "! grep -q '/Users/caimlas/git/meept-bench$' cwd.txt"
-          ]
+          "type": "trusted_python",
+          "script": "checkers/session_workdir_bound_check.py",
+          "sha256": "a3f2a78797253b2ab3e77d5709e71a9912a5d0d12e5d43454f766471c127c95a"
         }
       ]
     },
@@ -154,11 +151,11 @@
           "pattern": "probed"
         },
         {
-          "type": "exit_zero",
+          "type": "trusted_python",
+          "script": "checkers/harness_integrity_check.py",
+          "sha256": "b00d4b632984fbbdfda6b70087b54dc34b1e3bdc0e2b6085e4ce8e6d7ccb7f26",
           "command": [
-            "sh",
-            "-c",
-            "python3 -c \"import json,glob,os,sys; d=os.environ.get('MEEPT_BENCH_TRANSCRIPT_DIR',''); ms=glob.glob(os.path.join(d,'*bus-trace-arrives*.json')) if d else sorted(glob.glob('/Users/caimlas/git/meept-bench/results/**/transcripts/*bus-trace-arrives*.json', recursive=True), key=os.path.getmtime); t=json.load(open(ms[-1])); sys.exit(0 if len(t.get('tool_trace', []))>0 else 1)\" || (echo 'tool_trace empty or transcript missing - bus subscription regressed (a20b105c)'; exit 1)"
+            "bus-trace-arrives"
           ]
         }
       ]
@@ -184,11 +181,11 @@
           "pattern": "costed"
         },
         {
-          "type": "exit_zero",
+          "type": "trusted_python",
+          "script": "checkers/harness_integrity_check.py",
+          "sha256": "b00d4b632984fbbdfda6b70087b54dc34b1e3bdc0e2b6085e4ce8e6d7ccb7f26",
           "command": [
-            "sh",
-            "-c",
-            "[ -f /Users/caimlas/git/meept-bench/results/regression/results.jsonl ] || exit 0; python3 -c \"import json,sys; rows=[json.loads(l) for l in open('/Users/caimlas/git/meept-bench/results/regression/results.jsonl') if l.strip()]; bad=[r for r in rows if r.get('verdict')=='pass' and r.get('tokens_in',0)<0]; sys.exit(1 if bad else 0)\""
+            "harness-cost-row-present"
           ]
         }
       ]
@@ -213,11 +210,11 @@
           "pattern": "complete"
         },
         {
-          "type": "exit_zero",
+          "type": "trusted_python",
+          "script": "checkers/harness_integrity_check.py",
+          "sha256": "b00d4b632984fbbdfda6b70087b54dc34b1e3bdc0e2b6085e4ce8e6d7ccb7f26",
           "command": [
-            "sh",
-            "-c",
-            "python3 -c \"import json,glob,os,sys; d=os.environ.get('MEEPT_BENCH_TRANSCRIPT_DIR',''); ms=glob.glob(os.path.join(d,'*transcript-completeness*.json')) if d else sorted(glob.glob('/Users/caimlas/git/meept-bench/results/**/transcripts/*transcript-completeness*.json', recursive=True), key=os.path.getmtime); t=json.load(open(ms[-1])); sys.exit(0 if t.get('final_reply') and t.get('prompt') else 1)\""
+            "transcript-completeness"
           ]
         }
       ]

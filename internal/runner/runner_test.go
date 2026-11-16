@@ -185,13 +185,51 @@ func TestAppendRow(t *testing.T) {
 	}
 }
 
+// TestOutDirOr covers the out-dir resolution contract: --out wins verbatim
+// (absolutized), and an empty --out yields the suite-scoped
+// <cwd>/results/<suite> so the runner's writes and the checkers' reads name
+// the SAME directory even though checkers execute with cwd = the worktree.
 func TestOutDirOr(t *testing.T) {
-	if got := (&Runner{}).outDirOr(); got != "results" {
-		t.Errorf("empty Options outDirOr() = %q, want %q", got, "results")
+	// Hermetic: cwd is a temp dir, so a relative default can never create
+	// results/ inside the package tree.
+	chdir(t, t.TempDir())
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
 	}
-	r := &Runner{opt: Options{OutDir: "/x"}}
-	if got := r.outDirOr(); got != "/x" {
+	if got, want := (&Runner{}).outDirOr("regression"), filepath.Join(cwd, "results", "regression"); got != want {
+		t.Errorf("empty Options outDirOr(regression) = %q, want %q", got, want)
+	}
+	// Suite "" resolves the results root (used for the transcripts dir when
+	// the suite is not in scope).
+	if got, want := (&Runner{}).outDirOr(""), filepath.Join(cwd, "results"); got != want {
+		t.Errorf("empty Options outDirOr(\"\") = %q, want %q", got, want)
+	}
+	// Relative --out is resolved against the process CWD: an absolute path is
+	// the only form a checker can use from inside a worktree.
+	r := &Runner{opt: Options{OutDir: "results/custom"}}
+	if got, want := r.outDirOr("regression"), filepath.Join(cwd, "results", "custom"); got != want {
+		t.Errorf("relative OutDir outDirOr() = %q, want %q", got, want)
+	}
+	// Absolute --out passes through untouched.
+	r = &Runner{opt: Options{OutDir: "/x"}}
+	if got := r.outDirOr("regression"); got != "/x" {
 		t.Errorf("OutDir set outDirOr() = %q, want %q", got, "/x")
+	}
+}
+
+// TestOutDirOrIsAbsolute: the checker subprocess runs with cwd = the task
+// worktree, so a relative transcript dir would resolve inside it and every
+// transcript probe would read a path that never exists. This pins the
+// absoluteness, not just the shape.
+func TestOutDirOrIsAbsolute(t *testing.T) {
+	for _, suite := range []string{"", "regression"} {
+		for _, outDir := range []string{"", "results/x", "results"} {
+			got := (&Runner{opt: Options{OutDir: outDir}}).outDirOr(suite)
+			if !filepath.IsAbs(got) {
+				t.Errorf("outDirOr(%q) with OutDir=%q = %q, want an absolute path", suite, outDir, got)
+			}
+		}
 	}
 }
 

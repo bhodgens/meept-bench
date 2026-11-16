@@ -39,6 +39,7 @@ type RunOption func(*runConfig)
 type runConfig struct {
 	doubleJudge   bool
 	transcriptDir string
+	outDir        string
 }
 
 // WithTranscriptDir exports the CURRENT run's transcript directory to
@@ -46,8 +47,26 @@ type runConfig struct {
 // writes this run's transcripts there; checkers should read from it
 // instead of globbing results/** across every historical run dir (stale
 // runs from a sick daemon then poison later gate runs).
+//
+// The same env var is exported to trusted_python checkers, which see it as
+// an ordinary environment variable.
 func WithTranscriptDir(dir string) RunOption {
 	return func(rc *runConfig) { rc.transcriptDir = dir }
+}
+
+// WithResultsDir exports the CURRENT run's results directory — the one
+// holding this run's results.jsonl — as MEEPT_BENCH_RESULTS_DIR.
+//
+// A checker that reads results.jsonl (rather than a transcript) has no
+// way to name its own run: the runner names transcripts after the
+// worktree basename, but results.jsonl is one file per run, so nothing
+// under the checker's cwd identifies which --out the runner chose.
+// Without this, such a checker either globs results/** (stale runs
+// poison later gates) or hardcodes an absolute path (breaks on every
+// checkout except the author's). This hands it the path the runner
+// actually resolved.
+func WithResultsDir(dir string) RunOption {
+	return func(rc *runConfig) { rc.outDir = dir }
 }
 
 // WithDoubleJudge runs the llm_judge backend twice and reports the mean
@@ -77,10 +96,10 @@ func Run(ctx context.Context, c suite.Check, worktree, finalAnswer string, judge
 		} else {
 			// -I ignores PYTHONPATH, user site, and worktree module shadowing.
 			c.Command = append([]string{"python3", "-I", "-B", "-c", c.TrustedScript()}, c.Command...)
-			r.Passed, r.Detail, err = exitZero(ctx, c, worktree, rc.transcriptDir)
+			r.Passed, r.Detail, err = exitZero(ctx, c, worktree, rc.transcriptDir, rc.outDir)
 		}
 	case "exit_zero":
-		r.Passed, r.Detail, err = exitZero(ctx, c, worktree, rc.transcriptDir)
+		r.Passed, r.Detail, err = exitZero(ctx, c, worktree, rc.transcriptDir, rc.outDir)
 	case "llm_judge":
 		r.Score, r.Rationale, r.Detail, err = llmJudge(ctx, c, finalAnswer, judge, rc.doubleJudge)
 		r.Passed = err == nil && r.Score >= minScore(c.MinScore)
@@ -151,18 +170,30 @@ func trimTrailingNewline(data []byte) []byte {
 	return trimmed
 }
 
-func exitZero(ctx context.Context, c suite.Check, wt, transcriptDir string) (bool, string, error) {
+func exitZero(ctx context.Context, c suite.Check, wt, transcriptDir, resultsDir string) (bool, string, error) {
 	if len(c.Command) == 0 {
 		return false, "", fmt.Errorf("empty command")
 	}
 	cmd := exec.CommandContext(ctx, c.Command[0], c.Command[1:]...)
 	cmd.Dir = wt
+	// env starts as the inherited environment; appending a duplicate key
+	// wins on exec (last value is the one delivered), so callers cannot be
+	// shadowed by whatever the parent process exported.
+	cmd.Env = os.Environ()
 	// MEEPT_BENCH_TRANSCRIPT_DIR names THIS run's transcript directory.
 	// Checkers that inspect transcripts should prefer it over globbing
 	// results/** (which leaks stale runs across gates). Empty when the
 	// runner had no out dir (never in practice; results/ is the fallback).
 	if transcriptDir != "" {
-		cmd.Env = append(os.Environ(), "MEEPT_BENCH_TRANSCRIPT_DIR="+transcriptDir)
+		cmd.Env = append(cmd.Env, "MEEPT_BENCH_TRANSCRIPT_DIR="+transcriptDir)
+	}
+	// MEEPT_BENCH_RESULTS_DIR names THIS run's results dir (the one holding
+	// results.jsonl). Checkers that read the run's own results rows must use
+	// it for the same reason: nothing under the worktree cwd identifies
+	// which --out the runner chose, so without it such a checker can only
+	// hardcode an absolute path or glob stale runs.
+	if resultsDir != "" {
+		cmd.Env = append(cmd.Env, "MEEPT_BENCH_RESULTS_DIR="+resultsDir)
 	}
 	out, err := cmd.CombinedOutput()
 	detail := trim(out)

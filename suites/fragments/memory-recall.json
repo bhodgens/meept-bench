@@ -68,15 +68,12 @@
           "files": [
             "cwd.txt"
           ],
-          "pattern": "\\.meept-bench/|/tmp/meept-bench/"
+          "pattern": "^/"
         },
         {
-          "type": "exit_zero",
-          "command": [
-            "sh",
-            "-c",
-            "! grep -q '/Users/caimlas/git/meept-bench$' cwd.txt"
-          ]
+          "type": "trusted_python",
+          "script": "checkers/session_workdir_bound_check.py",
+          "sha256": "a3f2a78797253b2ab3e77d5709e71a9912a5d0d12e5d43454f766471c127c95a"
         }
       ]
     }

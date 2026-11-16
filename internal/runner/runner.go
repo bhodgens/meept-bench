@@ -100,10 +100,7 @@ func (r *Runner) RunSuite(ctx context.Context, m *suite.Manifest, filter string)
 	if err := isolation.CheckSocket(isolation.DefaultSocketPath()); err != nil {
 		return "", nil, fmt.Errorf("isolation guard: %w", err)
 	}
-	outDir := r.opt.OutDir
-	if outDir == "" {
-		outDir = filepath.Join("results", sanitize(m.Suite))
-	}
+	outDir := r.outDirOr(m.Suite)
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return "", nil, err
 	}
@@ -434,17 +431,24 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 		}
 		transcript.Error = row.ErrorDetail
 	}
-	r.writeTranscript(name, transcript)
+	r.writeTranscript(m.Suite, name, transcript)
 
 	// Checkers.
 	passed := routeVerdict == "pass"
 	checkResults := make([]any, 0, len(t.Checkers))
-	// This run's transcript dir: checkers that inspect transcripts must
-	// read THIS run's artifacts, not the newest match across results/**
-	// (a stale run dir from a sick daemon then poisons later gates —
-	// seen 2026-09-26 when gate-pre-push outlived its daemon).
-	transcriptDir := filepath.Join(r.outDirOr(), "transcripts")
-	opts := append(r.runCheckOpts(), checkers.WithTranscriptDir(transcriptDir))
+	// This run's out dir, resolved once: checkers run with cmd.Dir = the
+	// worktree, so every path handed to them must be absolute or it lands
+	// inside the throwaway worktree.
+	runOutDir := r.outDirOr(m.Suite)
+	// Checkers that inspect transcripts must read THIS run's artifacts, not
+	// the newest match across results/** (a stale run dir from a sick
+	// daemon then poisons later gates — seen 2026-09-26 when
+	// gate-pre-push outlived its daemon).
+	transcriptDir := filepath.Join(runOutDir, "transcripts")
+	opts := append(r.runCheckOpts(),
+		checkers.WithTranscriptDir(transcriptDir),
+		checkers.WithResultsDir(runOutDir),
+	)
 	for _, c := range t.Checkers {
 		res := checkers.Run(ctx, c, wt.Path, resp.Reply, r.judge, opts...)
 		checkResults = append(checkResults, res)
@@ -938,7 +942,7 @@ func (r *Runner) finishErr(wt *isolate.Worktree, row *results.Row, m *suite.Mani
 		tr.Turns = turns
 		tr.EndedAt = time.Now()
 	}
-	r.writeTranscript(fmt.Sprintf("%s-%s-a%d", m.Suite, t.ID, attempt), tr)
+	r.writeTranscript(m.Suite, fmt.Sprintf("%s-%s-a%d", m.Suite, t.ID, attempt), tr)
 	if kind == "timeout" || r.opt.KeepFailed {
 		wt.Keep = true
 	} else if err := wt.Teardown(); err != nil {
@@ -947,8 +951,8 @@ func (r *Runner) finishErr(wt *isolate.Worktree, row *results.Row, m *suite.Mani
 	return row
 }
 
-func (r *Runner) writeTranscript(name string, tr *results.Transcript) {
-	dir := filepath.Join(r.outDirOr(), "transcripts")
+func (r *Runner) writeTranscript(suite, name string, tr *results.Transcript) {
+	dir := filepath.Join(r.outDirOr(suite), "transcripts")
 	_ = os.MkdirAll(dir, 0o755)
 	data, err := json.MarshalIndent(tr, "", "  ")
 	if err != nil {
@@ -957,11 +961,31 @@ func (r *Runner) writeTranscript(name string, tr *results.Transcript) {
 	_ = os.WriteFile(filepath.Join(dir, sanitize(name)+".json"), data, 0o644)
 }
 
-func (r *Runner) outDirOr() string {
-	if r.opt.OutDir != "" {
-		return r.opt.OutDir
+// outDirOr returns the resolved results directory for this run.
+//
+// Absolute on purpose: checkers execute with cmd.Dir = the per-task
+// worktree, so a relative out dir (the default "results/<suite>" when
+// --out is empty) would resolve inside that throwaway worktree and the
+// runner's own transcript/results writes would never be found by the
+// checker that is supposed to read them. A relative --out is resolved
+// against the process CWD — the same base RunSuite used to mkdir and
+// write to — so both sides now name one directory.
+//
+// suite is the manifest suite name, used only for the default layout
+// (<cwd>/results/<suite>). Pass "" when the suite is unknown and the
+// results root itself is wanted (transcripts live at <outDir>/transcripts).
+func (r *Runner) outDirOr(suite string) string {
+	dir := r.opt.OutDir
+	if dir == "" {
+		dir = "results"
+		if suite != "" {
+			dir = filepath.Join("results", sanitize(suite))
+		}
 	}
-	return "results"
+	if abs, err := filepath.Abs(dir); err == nil {
+		return abs
+	}
+	return dir
 }
 
 func errRow(m *suite.Manifest, t suite.Task, attempt int, start time.Time, kind, detail string) *results.Row {
