@@ -1,0 +1,80 @@
+{
+  "suite": "usability",
+  "description": "Interactive-usability probe suite (2026-11-19). Local-only rig, quotas disabled. Axes: multi-turn context, steering/followup, routing evidence, failure-path surfacing, plan-vs-direct delineation. Frozen prompts: do not reword to make routing pass.",
+  "model": "",
+  "tasks": [
+    {
+      "id": "u-context-two-step",
+      "prompt": "Create a file named counter.txt in the repository root containing exactly the number 3 on a single line. Use file_write with direct:true.",
+      "turns": [
+        {
+          "delay_s": 45,
+          "message": "Read counter.txt, add 4 to the number in it, and write the result back to counter.txt (file_write with direct:true). Then reply with the new number."
+        }
+      ],
+      "timeout_seconds": 420,
+      "seeds": [1],
+      "tags": ["usability", "context"],
+      "checkers": [
+        {"type": "file_contains", "files": ["counter.txt"], "pattern": "^7$"}
+      ]
+    },
+    {
+      "id": "u-steer-midrun",
+      "prompt": "Create a file named result.txt in the repository root containing exactly the number 7 on a single line. Use file_write with direct:true so the file lands on disk immediately.",
+      "turns": [
+        {
+          "delay_s": 5,
+          "message": "Create a file named result2.txt in the repository root containing exactly the number 7 on a single line. Use file_write with direct:true so result2.txt lands on disk immediately. This replaces the earlier result.txt - after this, the only result file on disk must be result2.txt. Do not start new work beyond writing result2.txt."
+        }
+      ],
+      "timeout_seconds": 420,
+      "seeds": [1],
+      "tags": ["usability", "steering"],
+      "checkers": [
+        {"type": "file_contains", "files": ["result2.txt"], "pattern": "^7$"}
+      ]
+    },
+    {
+      "id": "u-route-research-write",
+      "prompt": "Fetch the page at http://127.0.0.1:9/usability-fixture.html and save its body text to a file named fetched.txt in the repository root.",
+      "timeout_seconds": 300,
+      "seeds": [1],
+      "tags": ["usability", "routing", "capability-gap"],
+      "checkers": [
+        {"type": "file_contains", "files": ["fetched.txt"], "pattern": "."}
+      ]
+    },
+    {
+      "id": "u-fail-nonexistent-read",
+      "prompt": "Read the file definitely_missing_12345.txt in the repository root and tell me its exact contents. If you cannot read it, tell me plainly that it does not exist.",
+      "timeout_seconds": 300,
+      "seeds": [1],
+      "tags": ["usability", "failure-path"],
+      "checkers": [
+        {"type": "exit_zero", "command": ["test", "!", "-f", "definitely_missing_12345.txt"]}
+      ]
+    },
+    {
+      "id": "u-plan-mode-request",
+      "prompt": "Make a plan for adding a greetings module to this project: it should say hello in three languages, have tests, and a README section. Do not implement anything yet, just produce the plan for my approval.",
+      "timeout_seconds": 420,
+      "seeds": [1],
+      "tags": ["usability", "planning"],
+      "checkers": [
+        {"type": "exit_zero", "command": ["true"]}
+      ]
+    },
+    {
+      "id": "u-direct-explicit",
+      "prompt": "Write a file named direct.txt containing the word ok. Do this directly now, no planning needed. Use file_write with direct:true.",
+      "expect_agent": "coder",
+      "timeout_seconds": 300,
+      "seeds": [1],
+      "tags": ["usability", "direct"],
+      "checkers": [
+        {"type": "file_contains", "files": ["direct.txt"], "pattern": "^ok$"}
+      ]
+    }
+  ]
+}
