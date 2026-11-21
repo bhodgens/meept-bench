@@ -81,6 +81,11 @@ def main() -> int:
     if not line:
         return fail("empty judge completion")
 
+    # Strip empty reasoning blocks ("<think></think> 0.9 ..."): some local
+    # models emit an empty think prefix ahead of the score line (seen on the
+    # 07-bench acceptance rig's LFM2.5 judge seed); the score is still there.
+    line = re.sub(r"<think>\s*</think>\s*", "", line).strip()
+
     # Normalize model output to the "<score 0..1> <rationale>" contract.
     # Small models often wrap the score in tags ("<score>100</score>") or
     # answer on a 0-100 scale; both break the downstream ParseFloat+clamp.
