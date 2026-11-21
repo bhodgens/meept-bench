@@ -84,6 +84,16 @@ func Run(ctx context.Context, c suite.Check, worktree, finalAnswer string, judge
 	case "llm_judge":
 		r.Score, r.Rationale, r.Detail, err = llmJudge(ctx, c, finalAnswer, judge, rc.doubleJudge)
 		r.Passed = err == nil && r.Score >= minScore(c.MinScore)
+	case "terminal_delivery":
+		r.Passed, r.Detail, err = runTerminalDelivery(ctx, c, rc)
+		if r.Passed && strings.TrimSpace(r.Detail) == "" {
+			r.Detail = "terminal_delivery: all submitted turns delivered"
+		}
+	case "plan_artifact":
+		r.Passed, r.Detail, err = runPlanArtifact(ctx, c, worktree, rc, finalAnswer, judge)
+		if r.Passed && strings.TrimSpace(r.Detail) == "" {
+			r.Detail = "plan_artifact: plan evidence found"
+		}
 	default:
 		return Result{Check: c.Type, Passed: false, Detail: "unknown checker type"}
 	}
