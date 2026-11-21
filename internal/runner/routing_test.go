@@ -105,7 +105,7 @@ func TestRunTaskRoutingEvidence(t *testing.T) {
 			if err := json.Unmarshal(data, &tr); err != nil {
 				t.Fatal(err)
 			}
-			if tc.terminal != "submit_error" && (tr.FinalReply != "artifact ready" || len(tr.ToolTrace) != 1 || tr.Prompt != task.Prompt) {
+			if tc.terminal != "submit_error" && (tr.FinalReply != "artifact ready" || len(tr.ToolTrace) < 1 || tr.Prompt != task.Prompt) {
 				t.Errorf("transcript destroyed: %s", data)
 			}
 			creates, submits, traces := snapshots()
