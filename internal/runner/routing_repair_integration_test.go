@@ -159,10 +159,18 @@ func routingRepairMediaEvidence(t *testing.T, identity string) {
 		t.Errorf("transcript routing_checks: %v", tr["routing_checks"])
 	}
 	trace, _ := tr["tool_trace"].([]any)
-	if len(trace) != 1 {
+	// turn.terminal is now captured too (terminal_delivery checker needs
+	// it); filter it out - this pin targets the tool-execution row.
+	var toolRows []any
+	for _, row := range trace {
+		if m, ok := row.(map[string]any); ok && m["topic"] != "turn.terminal" {
+			toolRows = append(toolRows, row)
+		}
+	}
+	if len(toolRows) != 1 {
 		t.Fatalf("tool_trace: %v", tr["tool_trace"])
 	}
-	ev, _ := trace[0].(map[string]any)
+	ev, _ := toolRows[0].(map[string]any)
 	if ev["topic"] != "tool.execution.complete" {
 		t.Errorf("trace topic: %v", ev["topic"])
 	}
