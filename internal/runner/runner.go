@@ -254,7 +254,7 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	subCtx, cancelSub := context.WithTimeout(ctx, 10*time.Second)
 	sub, err := client.Subscribe(subCtx, []string{
 		"tool.execution.progress", "tool.execution.complete", "chat_message",
-		"agent.lifecycle.started",
+		"agent.lifecycle.started", "turn.terminal",
 	})
 	cancelSub()
 	if err != nil {
