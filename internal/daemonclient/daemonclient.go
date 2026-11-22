@@ -787,6 +787,38 @@ type turnTerminalPayload struct {
 	Error          string `json:"error"`
 }
 
+// ChatApprovalOptions opts a ChatAsync call into the bench-side plan
+// auto-approver (u-plan residual, plan 20261119-usability-remediation).
+type ChatApprovalOptions struct {
+	// ApproveWhenParked, when non-nil, is called when the turn parks at
+	// the plan approval gate (turn.terminal status "parked" carrying
+	// "Plan awaiting user approval"). It returns the parked task's ID.
+	// On success the runner approves the task and keeps waiting; on
+	// error the error text is recorded once and the ordinary wait
+	// continues (the park then plays out exactly as without the flag).
+	ApproveWhenParked func(ctx context.Context) (taskID string, err error)
+	// OnAutoApprove, when non-nil, is informed of the auto-approval
+	// outcome (approved task id + elapsed, or error text) once per
+	// attempt.
+	OnAutoApprove func(approved bool, taskID, detail string)
+}
+
+// planParkMarker is the strategic planner's park line
+// ("Plan awaiting user approval", internal/agent/strategic.go
+// awaitUserApproval -> task.pending_approval / terminal relay). It is the
+// only signal that distinguishes an approval-gate park from any other
+// parked terminal.
+const planParkMarker = "Plan awaiting user approval"
+
+// AutoApproveLivenessExtension is added to the ChatAsync stall window once
+// the auto-approver fires: the parked turn's deadline budget must account
+// for the approval round-trip plus the post-approval plan execution (steps
+// promote -> execute -> terminal), not just the pre-park planning time.
+// The runner adds the same budget to the task's chat context when the task
+// opts in, so the ctx deadline cannot expire before the extended stall
+// window.
+const AutoApproveLivenessExtension = 120 * time.Second
+
 // ChatAsync submits a chat turn via the "chat.submit" RPC and awaits the
 // daemon's "turn.terminal" bus event for the returned turn ID.
 //
@@ -802,7 +834,14 @@ type turnTerminalPayload struct {
 // cancellation, and stalls (ErrTurnStalled, when no terminal event arrives
 // within Client.LivenessTimeout). metrics, when non-nil, receives the
 // ack/turn latency split.
-func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metrics *ChatMetrics) (*TurnResult, error) {
+//
+// opts, when non-nil, arms the bench-side plan auto-approver: a parked
+// terminal carrying the approval-gate marker triggers exactly one
+// opts.ApproveWhenParked round-trip (the daemon's existing task.approve
+// RPC), after which the wait continues to the eventual real terminal and
+// the liveness window is extended by autoApproveLivenessExtension to
+// account for the approval round-trip plus post-approval step execution.
+func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metrics *ChatMetrics, opts ...*ChatApprovalOptions) (*TurnResult, error) {
 	start := time.Now()
 
 	conversation := sessionID
@@ -864,6 +903,21 @@ func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metri
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 	waitStart := time.Now() // liveness window opens at submit, before any event
+
+	// Bench-side plan auto-approver (opt-in): the parked terminal arrives
+	// through the SAME turn.terminal stream; arming here lets the wait
+	// continue into the post-approval execution instead of returning the
+	// park as the turn's outcome.
+	var approval *ChatApprovalOptions
+	if len(opts) > 0 {
+		approval = opts[0]
+	}
+	autoApproved := false
+	// Local stall budget (c.liveness() snapshot): extended locally when the
+	// auto-approver fires, so a shared Client (forked by other task
+	// subsystems) never sees its window mutated mid-task.
+	liveness := c.liveness()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -902,6 +956,30 @@ func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metri
 					// in a later event with this turn's id. Refresh the
 					// liveness window — progress happened.
 					waitStart = time.Now()
+					// Plan-approval-gate park (opt-in auto-approver):
+					// exactly one approval attempt per turn. On failure
+					// the park plays out exactly as without the flag.
+					if approval != nil && approval.ApproveWhenParked != nil &&
+						!autoApproved && strings.Contains(p.Error, planParkMarker) {
+						autoApproved = true
+						taskID, approveErr := approval.ApproveWhenParked(ctx)
+						if approveErr != nil {
+							if approval.OnAutoApprove != nil {
+								approval.OnAutoApprove(false, "", "auto-approve failed: "+approveErr.Error())
+							}
+						} else {
+							// The stall budget now covers the approval
+							// round-trip AND the post-approval plan
+							// execution, not just the pre-park
+							// planning stretch.
+							liveness += AutoApproveLivenessExtension
+							if approval.OnAutoApprove != nil {
+								approval.OnAutoApprove(true, taskID,
+									fmt.Sprintf("plan auto-approved (task.approve) after %.1fs; stall window extended by %s",
+										time.Since(start).Seconds(), AutoApproveLivenessExtension))
+							}
+						}
+					}
 					continue
 				}
 				if metrics != nil {
@@ -914,8 +992,8 @@ func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metri
 					DurationMS: p.DurationMS,
 				}, nil
 			}
-			if time.Since(waitStart) >= c.liveness() {
-				return nil, fmt.Errorf("chat turn %s: %w (liveness timeout %s)", ack.TurnID, ErrTurnStalled, c.liveness())
+			if time.Since(waitStart) >= liveness {
+				return nil, fmt.Errorf("chat turn %s: %w (liveness timeout %s)", ack.TurnID, ErrTurnStalled, liveness)
 			}
 		}
 	}

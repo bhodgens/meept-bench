@@ -66,6 +66,7 @@
     {
       "id": "u-plan-mode-request",
       "prompt": "Make a plan for adding a greetings module to this project: it should say hello in three languages, have tests, and a README section. Do not implement anything yet, just produce the plan for my approval.",
+      "extra": {"auto_approve_plans": true},
       "timeout_seconds": 420,
       "seeds": [1],
       "tags": ["usability", "planning"],

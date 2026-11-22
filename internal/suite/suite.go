@@ -65,7 +65,31 @@ type Task struct {
 	// explicit "cache-miss" error, never the network. Capture fixtures
 	// with `meept-bench capture --url ...`.
 	Tools     *ToolsConfig `json:"tools,omitempty"`
+	Extra     *TaskExtra   `json:"extra,omitempty"`
 	SessionID string       `json:"-"`
+}
+
+// TaskExtra carries per-task harness behavior flags. Everything here is
+// opt-in: an absent Extra keeps byte-identical runner semantics (the
+// approval gate stays default-on; only tasks that declare the flag get
+// the bench-side approver).
+type TaskExtra struct {
+	// AutoApprovePlans turns on the bench-side plan auto-approver for
+	// this task. When the daemon parks the turn at the plan approval
+	// gate ("Plan awaiting user approval", complexity gate
+	// orchestrator.task_approval_step_threshold), a headless run has no
+	// human to approve and the turn never terminalizes within the task
+	// budget. With this flag the runner (the de-facto interactive
+	// client in a headless run) approves the parked task via the
+	// daemon's existing task.approve RPC and keeps waiting for the
+	// eventual terminal. Default: absent = no auto-approval.
+	AutoApprovePlans bool `json:"auto_approve_plans,omitempty"`
+}
+
+// AutoApprovePlans reports whether the task opted into the bench-side
+// plan auto-approver.
+func (t *Task) AutoApprovePlans() bool {
+	return t.Extra != nil && t.Extra.AutoApprovePlans
 }
 
 // ToolsConfig declares per-task tool variants.
