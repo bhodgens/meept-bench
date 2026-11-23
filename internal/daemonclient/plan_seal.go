@@ -144,7 +144,7 @@ func firstLine(s string) string {
 // findTaskBySession returns the first task in task.list_extended whose
 // linked_sessions contains sessionID and whose creation time is at or after
 // since. found=false when no such task exists yet.
-func (c *Client) findTaskBySession(sessionID string, since time.Time) (taskID, state, description string, found bool, err error) {
+func (c *Client) findTaskBySession(sessionID, conversationID string, since time.Time) (taskID, state, description string, found bool, err error) {
 	var out struct {
 		Tasks []struct {
 			ID             string   `json:"id"`
@@ -160,7 +160,10 @@ func (c *Client) findTaskBySession(sessionID string, since time.Time) (taskID, s
 	for _, t := range out.Tasks {
 		hasSession := false
 		for _, s := range t.LinkedSessions {
-			if s == sessionID {
+			// session_tasks is keyed by the CONVERSATION id in production
+			// (RouteToAgent -> LinkSession), so match the conversation id
+			// primarily and the session id as a fallback (F-BENCH-R8).
+			if s == sessionID || s == conversationID {
 				hasSession = true
 				break
 			}
@@ -181,7 +184,7 @@ func (c *Client) findTaskBySession(sessionID string, since time.Time) (taskID, s
 // when it parks in the planning state behind a scaffold draft: refines the
 // draft and seals it. Non-planning states return immediately (the task needs
 // no seal). Returns the matched task id.
-func (c *Client) RefineAndSeal(ctx context.Context, sessionID string, since time.Time) (string, error) {
+func (c *Client) RefineAndSeal(ctx context.Context, sessionID, conversationID string, since time.Time) (string, error) {
 	tick := time.NewTicker(sealPollInterval)
 	defer tick.Stop()
 
@@ -192,7 +195,7 @@ func (c *Client) RefineAndSeal(ctx context.Context, sessionID string, since time
 		case <-tick.C:
 		}
 
-		taskID, state, description, found, err := c.findTaskBySession(sessionID, since)
+		taskID, state, description, found, err := c.findTaskBySession(sessionID, conversationID, since)
 		if err != nil || !found {
 			continue // transient list error, or task not created yet
 		}
@@ -222,6 +225,7 @@ func (c *Client) RefineAndSeal(ctx context.Context, sessionID string, since time
 }
 
 // SealTaskBySession is the legacy entry point: seal without refinement.
-func (c *Client) SealTaskBySession(ctx context.Context, sessionID string, since time.Time) (string, error) {
-	return c.RefineAndSeal(ctx, sessionID, since)
+// conversationID may be empty (matching falls back to the session id).
+func (c *Client) SealTaskBySession(ctx context.Context, sessionID, conversationID string, since time.Time) (string, error) {
+	return c.RefineAndSeal(ctx, sessionID, conversationID, since)
 }

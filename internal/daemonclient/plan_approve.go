@@ -55,8 +55,8 @@ func (c *Client) ApproveTask(ctx context.Context, taskID string) error {
 
 // findTaskBySessionSince locates the session's task created at/after since
 // (already scoped by findTaskBySession) and returns its current state.
-func (c *Client) findTaskBySessionSince(sessionID string, since time.Time) (taskID, state string, found bool, err error) {
-	taskID, state, _, found, err = c.findTaskBySession(sessionID, since)
+func (c *Client) findTaskBySessionSince(sessionID, conversationID string, since time.Time) (taskID, state string, found bool, err error) {
+	taskID, state, _, found, err = c.findTaskBySession(sessionID, conversationID, since)
 	return taskID, state, found, err
 }
 
@@ -78,7 +78,7 @@ var ApprovePollInterval = approvalApprovePollInterval
 // the task.pending_approval topic, which the bench does not subscribe to),
 // so the approver re-derives the task through the session linkage the
 // plan-compiler seal driver already uses (plan_seal.go findTaskBySession).
-func (c *Client) FindAndApproveParkedTask(ctx context.Context, sessionID string, since time.Time) (string, error) {
+func (c *Client) FindAndApproveParkedTask(ctx context.Context, sessionID, conversationID string, since time.Time) (string, error) {
 	interval := ApprovePollInterval
 	if interval <= 0 {
 		interval = approvalApprovePollInterval
@@ -92,7 +92,7 @@ func (c *Client) FindAndApproveParkedTask(ctx context.Context, sessionID string,
 			return "", ctx.Err()
 		case <-tick.C:
 		}
-		taskID, state, found, err := c.findTaskBySessionSince(sessionID, since)
+		taskID, state, found, err := c.findTaskBySessionSince(sessionID, conversationID, since)
 		if err != nil || !found {
 			continue // task not created yet / transient list error
 		}

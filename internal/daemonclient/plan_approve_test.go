@@ -159,7 +159,7 @@ func TestApproveFiresOnRealParkedShape(t *testing.T) {
 			prev := ApprovePollInterval
 			ApprovePollInterval = 10 * time.Millisecond
 			t.Cleanup(func() { ApprovePollInterval = prev })
-			return ac.FindAndApproveParkedTask(ctx, "session-plan", time.Now().Add(-time.Minute))
+			return ac.FindAndApproveParkedTask(ctx, "session-plan", "session-plan", time.Now().Add(-time.Minute))
 		},
 		OnAutoApprove: func(ok bool, taskID, _ string) { cbOK, cbTaskID = ok, taskID },
 	}}
@@ -247,7 +247,7 @@ func TestChatAsyncAutoApprovesPlanPark(t *testing.T) {
 			prev := ApprovePollInterval
 			ApprovePollInterval = 10 * time.Millisecond
 			t.Cleanup(func() { ApprovePollInterval = prev })
-			return ac.FindAndApproveParkedTask(ctx, "session-plan", time.Now().Add(-time.Minute))
+			return ac.FindAndApproveParkedTask(ctx, "session-plan", "session-plan", time.Now().Add(-time.Minute))
 		},
 		OnAutoApprove: func(ok bool, taskID, detail string) {
 			cbOK, cbTaskID, cbDetail = ok, taskID, detail
@@ -327,7 +327,7 @@ func TestFindAndApproveSkipsResolvedStates(t *testing.T) {
 	c := New(h.sockPath)
 	ctx, cancel := contextWithTimeout(3 * time.Second)
 	defer cancel()
-	taskID, err := c.FindAndApproveParkedTask(ctx, "session-plan", time.Now().Add(-time.Minute))
+	taskID, err := c.FindAndApproveParkedTask(ctx, "session-plan", "session-plan", time.Now().Add(-time.Minute))
 	if err != nil {
 		t.Fatalf("FindAndApproveParkedTask: %v", err)
 	}
@@ -354,7 +354,7 @@ func TestFindAndApproveTimeoutWhenNeverParked(t *testing.T) {
 	t.Cleanup(func() { ApprovePollInterval = prev })
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := c.FindAndApproveParkedTask(ctx, "session-plan", time.Now().Add(-time.Minute)); err == nil {
+	if _, err := c.FindAndApproveParkedTask(ctx, "session-plan", "session-plan", time.Now().Add(-time.Minute)); err == nil {
 		t.Fatal("want timeout error when the task never reaches awaiting_approval")
 	}
 }

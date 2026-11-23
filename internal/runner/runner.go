@@ -366,7 +366,15 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 		}
 		chatApprovalOpts = append(chatApprovalOpts, &daemonclient.ChatApprovalOptions{
 			ApproveWhenParked: func(ctx context.Context) (string, error) {
-				return approveSvr.FindAndApproveParkedTask(ctx, sessionID, promptSentAt)
+				// session_tasks is keyed by the CONVERSATION id (RouteToAgent ->
+				// LinkSession), not the session id - querying by session id
+				// always returned 0 rows (F-BENCH-R8). Prefer conversation id;
+				// fall back to session id for safety.
+				prefer := conversationID
+				if prefer == "" {
+					prefer = sessionID
+				}
+				return approveSvr.FindAndApproveParkedTask(ctx, sessionID, prefer, promptSentAt)
 			},
 			OnAutoApprove: approvedLogf,
 		})

@@ -870,7 +870,7 @@ func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metri
 	sealCtx, cancelSeal := context.WithCancel(ctx)
 	defer cancelSeal()
 	go func() {
-		_, _ = c.SealTaskBySession(sealCtx, conversation, start)
+		_, _ = c.SealTaskBySession(sealCtx, sessionID, conversation, start)
 	}()
 
 	// Subscribe BEFORE the submit: no window in which a fast turn's
