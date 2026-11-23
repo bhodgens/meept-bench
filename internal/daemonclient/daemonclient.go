@@ -827,7 +827,7 @@ const planParkMarker = "Plan awaiting user approval"
 // The runner adds the same budget to the task's chat context when the task
 // opts in, so the ctx deadline cannot expire before the extended stall
 // window.
-const AutoApproveLivenessExtension = 120 * time.Second
+const AutoApproveLivenessExtension = 480 * time.Second
 
 // ChatAsync submits a chat turn via the "chat.submit" RPC and awaits the
 // daemon's "turn.terminal" bus event for the returned turn ID.

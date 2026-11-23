@@ -86,7 +86,7 @@ func (c *Client) FindAndApproveParkedTask(ctx context.Context, sessionID, conver
 	tick := time.NewTicker(interval)
 	defer tick.Stop()
 
-	for i := 0; i < 300; i++ { // bounded: 300 * interval (default 300 x 1s = 5 min)
+	for i := 0; i < 900; i++ { // bounded: 900 * interval (default 900 x 1s = 15 min) -- dense planner models can legitimately plan for 5+ minutes
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
