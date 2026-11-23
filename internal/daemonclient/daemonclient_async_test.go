@@ -39,8 +39,7 @@ type fakeDaemonScripted struct {
 	pollPause  time.Duration    // delay before bus.poll answers
 	pollErr    error            // transient error to return once (optional)
 	subscribed bool             // a bus.subscribe happened before chat.submit
-	buf        *bufio.Reader    // per-connection reader (single-conn tests)
-	conn       net.Conn         // the single served connection
+	conns      []net.Conn       // every accepted connection (cleanup closes all; serve uses per-conn readers)
 	respCh     chan struct{}    // signals "response written"
 	pollCount  int              // number of bus.poll calls served
 	closeOnce  sync.Once        // guard for cleanup
@@ -73,8 +72,12 @@ func startAsyncDaemon(t *testing.T) *fakeDaemonScripted {
 	t.Cleanup(func() {
 		f.closeOnce.Do(func() {
 			ln.Close()
-			if f.conn != nil {
-				f.conn.Close()
+			f.mu.Lock()
+			conns := f.conns
+			f.conns = nil
+			f.mu.Unlock()
+			for _, c := range conns {
+				_ = c.Close()
 			}
 			os.RemoveAll(dir)
 		})
@@ -86,8 +89,7 @@ func startAsyncDaemon(t *testing.T) *fakeDaemonScripted {
 				return
 			}
 			f.mu.Lock()
-			f.conn = conn
-			f.buf = bufio.NewReader(conn)
+			f.conns = append(f.conns, conn)
 			f.mu.Unlock()
 			go f.serve(conn)
 		}
@@ -95,14 +97,17 @@ func startAsyncDaemon(t *testing.T) *fakeDaemonScripted {
 	return f
 }
 
+// serve handles ONE connection with its OWN frame reader. The reader must
+// be per-connection (F-BENCH-R7 fake fix): the plan-approval harness and
+// the real runner both hold a second forked connection (chat wait + forked
+// approve client), and a shared reader slot let one connection's serve
+// loop consume another connection's request frame and answer it on the
+// wrong socket -- the main client then hung forever waiting for a reply
+// that had been delivered elsewhere (intermittent ChatAsync deadlock in
+// the approval tests, deterministic under load).
 func (f *fakeDaemonScripted) serve(conn net.Conn) {
+	buf := bufio.NewReader(conn)
 	for {
-		f.mu.Lock()
-		buf := f.buf
-		f.mu.Unlock()
-		if buf == nil {
-			return
-		}
 		payload, err := readFrame(buf)
 		if err != nil {
 			return

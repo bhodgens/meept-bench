@@ -791,9 +791,11 @@ type turnTerminalPayload struct {
 // auto-approver (u-plan residual, plan 20261119-usability-remediation).
 type ChatApprovalOptions struct {
 	// ApproveWhenParked, when non-nil, is called when the turn parks at
-	// the plan approval gate (turn.terminal status "parked" carrying
-	// "Plan awaiting user approval"). It returns the parked task's ID.
-	// On success the runner approves the task and keeps waiting; on
+	// the plan approval gate (turn.terminal status "parked" -- the REAL
+	// daemon shape, run 7: status=parked with NO error field and no
+	// marker text anywhere in the payload -- and the session's task has
+	// actually reached awaiting_approval). It returns the parked task's
+	// ID. On success the runner approves the task and keeps waiting; on
 	// error the error text is recorded once and the ordinary wait
 	// continues (the park then plays out exactly as without the flag).
 	ApproveWhenParked func(ctx context.Context) (taskID string, err error)
@@ -803,11 +805,19 @@ type ChatApprovalOptions struct {
 	OnAutoApprove func(approved bool, taskID, detail string)
 }
 
-// planParkMarker is the strategic planner's park line
-// ("Plan awaiting user approval", internal/agent/strategic.go
-// awaitUserApproval -> task.pending_approval / terminal relay). It is the
-// only signal that distinguishes an approval-gate park from any other
-// parked terminal.
+// F-BENCH-R7 (run 7): the REAL parked terminal payload carries
+// status="parked" with error ABSENT (""), no marker text anywhere in the
+// 13-key payload -- and in fact EVERY async_dispatch ack parks with that
+// same shape (the approval gate trips seconds later, daemon-side). So the
+// parked terminal alone cannot distinguish an approval-gate park. The REAL
+// gate is the session task's own state reaching "awaiting_approval"
+// (strategic.go awaitUserApproval -> StateAwaitingApproval ->
+// task.pending_approval), which the approver polls via task.list_extended
+// (FindAndApproveParkedTask). The parked terminal is only the trigger to
+// START polling; the awaiting_approval state is the only real signal that
+// an approval is actually pending. planParkMarker stays as documentation of
+// the daemon-log/pending_approval phrasing only; it is no longer matched
+// against the terminal payload.
 const planParkMarker = "Plan awaiting user approval"
 
 // AutoApproveLivenessExtension is added to the ChatAsync stall window once
@@ -954,13 +964,21 @@ func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metri
 					// Accepted-not-finished (async_dispatch ack): the
 					// work continues elsewhere; the real result arrives
 					// in a later event with this turn's id. Refresh the
-					// liveness window — progress happened.
+					// liveness window -- progress happened.
 					waitStart = time.Now()
 					// Plan-approval-gate park (opt-in auto-approver):
-					// exactly one approval attempt per turn. On failure
-					// the park plays out exactly as without the flag.
-					if approval != nil && approval.ApproveWhenParked != nil &&
-						!autoApproved && strings.Contains(p.Error, planParkMarker) {
+					// exactly one approval attempt per turn. The parked
+					// terminal itself carries NO distinguishing marker
+					// (F-BENCH-R7, run 7: error is absent on the real
+					// daemon, and every async_dispatch ack parks this
+					// way), so the predicate is just status=parked +
+					// opt-in; the REAL gate lives in FindAndApproveParkedTask,
+					// which approves only once the session task is
+					// actually observed in awaiting_approval via
+					// task.list_extended. On approve failure or a
+					// never-parked task the park plays out exactly as
+					// without the flag.
+					if approval != nil && approval.ApproveWhenParked != nil && !autoApproved {
 						autoApproved = true
 						taskID, approveErr := approval.ApproveWhenParked(ctx)
 						if approveErr != nil {
