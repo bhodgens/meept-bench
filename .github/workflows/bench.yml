@@ -75,6 +75,14 @@ jobs:
           fi
           echo "secret present (length ${#KEY}) — not echoed"
 
+      - name: Install cgo build deps (alsa headers for the oto audio driver)
+        # The meept daemon pulls github.com/ebitengine/oto/v3, whose Linux
+        # backend compiles against alsa (pkg-config 'alsa'). Meept's own CI
+        # installs the same package before go build (see ci.yml
+        # "Install cgo build deps"); without it the daemon build fails with
+        # "Package alsa was not found in the pkg-config search path".
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
+
       - name: Clone meept at $MEEPT_DAEMON_REF
         run: git clone --depth 1 --branch "$MEEPT_DAEMON_REF" "$MEEPT_REPO_URL" "$HOME/meept"
 
@@ -185,6 +193,14 @@ jobs:
             exit 1
           fi
           echo "secret present (length ${#KEY}) — not echoed"
+
+      - name: Install cgo build deps (alsa headers for the oto audio driver)
+        # The meept daemon pulls github.com/ebitengine/oto/v3, whose Linux
+        # backend compiles against alsa (pkg-config 'alsa'). Meept's own CI
+        # installs the same package before go build (see ci.yml
+        # "Install cgo build deps"); without it the daemon build fails with
+        # "Package alsa was not found in the pkg-config search path".
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
 
       - name: Clone meept at $MEEPT_DAEMON_REF
         run: git clone --depth 1 --branch "$MEEPT_DAEMON_REF" "$MEEPT_REPO_URL" "$HOME/meept"
