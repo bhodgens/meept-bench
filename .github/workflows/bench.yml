@@ -48,8 +48,11 @@ env:
   DAEMON_DATA: /tmp/meept-data
   # The runner's isolation guard refuses a scratch root inside repoPath
   # (worktrees would land inside the repo tree) - run 45490899491 failed
-  # exactly there. Keep it under the runner's own temp dir instead.
-  SCRATCH: ${{ runner.temp }}/meept-bench-ci
+  # exactly there. Keep it in /tmp, alongside SOCKET/DAEMON_DATA. NOTE:
+  # this must stay a literal: the runner context is NOT available in the
+  # workflow-level env block (referencing ${{ runner.temp }} there made
+  # the whole workflow fail to parse - run 45491934906, 0 jobs).
+  SCRATCH: /tmp/meept-bench-ci
   # Disclosure for auto-approval (GAPS.md gap 6): result rows record
   # auto_approved; this env var surfaces it in run logs too.
   AUTO_APPROVED: '1'
