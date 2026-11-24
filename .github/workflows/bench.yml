@@ -109,8 +109,19 @@ jobs:
           cat > "$HOME/.meept/models.json5" <<'EOF'
           {
             "model": "zai/glm-4.5-air",
+            // Every loop-visible alias must resolve to the live provider:
+            // an alias with no entry falls back to the daemon's built-in
+            // table (local 127.0.0.1:8080 llama endpoints) which does not
+            // exist on the runner -> "dial tcp 127.0.0.1:8080: connect:
+            // connection refused" -> endpoint cooldown -> parked turns
+            // (run 45494609467: planner alias blocked the open-ended task).
             "model_aliases": {
-              "coder": { "models": ["zai/glm-4.5-air"], "timeout": 300, "max_fails": 3 }
+              "coder": { "models": ["zai/glm-4.5-air"], "timeout": 300, "max_fails": 3 },
+              "planner": { "models": ["zai/glm-4.5-air"], "timeout": 300, "max_fails": 3 },
+              "classifier": { "models": ["zai/glm-4.5-air"], "timeout": 30, "max_fails": 3 },
+              "summarizer": { "models": ["zai/glm-4.5-air"], "timeout": 60, "max_fails": 3 },
+              "small": { "models": ["zai/glm-4.5-air"], "timeout": 60, "max_fails": 3 },
+              "analyst": { "models": ["zai/glm-4.5-air"], "timeout": 300, "max_fails": 3 }
             },
             "default_timeout": 3000,
             "providers": {
@@ -254,8 +265,19 @@ jobs:
           cat > "$HOME/.meept/models.json5" <<'EOF'
           {
             "model": "zai/glm-4.5-air",
+            // Every loop-visible alias must resolve to the live provider:
+            // an alias with no entry falls back to the daemon's built-in
+            // table (local 127.0.0.1:8080 llama endpoints) which does not
+            // exist on the runner -> "dial tcp 127.0.0.1:8080: connect:
+            // connection refused" -> endpoint cooldown -> parked turns
+            // (run 45494609467: planner alias blocked the open-ended task).
             "model_aliases": {
-              "coder": { "models": ["zai/glm-4.5-air"], "timeout": 300, "max_fails": 3 }
+              "coder": { "models": ["zai/glm-4.5-air"], "timeout": 300, "max_fails": 3 },
+              "planner": { "models": ["zai/glm-4.5-air"], "timeout": 300, "max_fails": 3 },
+              "classifier": { "models": ["zai/glm-4.5-air"], "timeout": 30, "max_fails": 3 },
+              "summarizer": { "models": ["zai/glm-4.5-air"], "timeout": 60, "max_fails": 3 },
+              "small": { "models": ["zai/glm-4.5-air"], "timeout": 60, "max_fails": 3 },
+              "analyst": { "models": ["zai/glm-4.5-air"], "timeout": 300, "max_fails": 3 }
             },
             "default_timeout": 3000,
             "providers": {
