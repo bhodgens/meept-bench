@@ -174,6 +174,28 @@ jobs:
           cp -r "$HOME/meept/config/agents" "$HOME/.meept/agents"
           cp -r "$HOME/meept/config/prompts" "$HOME/.meept/prompts"
 
+      - name: Probe provider reachability
+        env:
+          MEEPT_CI_PROVIDER_KEY: ${{ secrets.MEEPT_CI_PROVIDER_KEY }}
+        run: |
+          # Surface the real HTTP status the daemon will see, BEFORE any
+          # alias/cooldown machinery can obscure it. Run 45496785906: the
+          # planner alias resolved to the live provider (config correct)
+          # yet every candidate got endpoint-blocked within ~2 minutes.
+          # Runner egress to api.z.ai is the suspect; this step proves it
+          # or clears it with a raw status code.
+          code=$(curl -s -o /tmp/probe.json -w "%{http_code}" -m 60 \
+            -X POST "https://api.z.ai/api/coding/paas/v4/chat/completions" \
+            -H "Authorization: Bearer $MEEPT_CI_PROVIDER_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"model":"glm-4.5-air","messages":[{"role":"user","content":"say OK"}],"max_tokens":8}')
+          echo "provider probe HTTP $code"
+          head -c 300 /tmp/probe.json; echo
+          if [ "$code" != "200" ]; then
+            echo "::error::provider unreachable from runner (HTTP $code)"
+            exit 1
+          fi
+
       - name: Start daemon
         env:
           MEEPT_CI_PROVIDER_KEY: ${{ secrets.MEEPT_CI_PROVIDER_KEY }}
@@ -201,6 +223,7 @@ jobs:
           ./meept-bench run \
             --suite suites/smoke.json \
             --attempts 1 \
+            --repo "$HOME/meept" \
             --scratch "$SCRATCH" \
             --auto-approved
 
@@ -330,6 +353,28 @@ jobs:
           cp -r "$HOME/meept/config/agents" "$HOME/.meept/agents"
           cp -r "$HOME/meept/config/prompts" "$HOME/.meept/prompts"
 
+      - name: Probe provider reachability
+        env:
+          MEEPT_CI_PROVIDER_KEY: ${{ secrets.MEEPT_CI_PROVIDER_KEY }}
+        run: |
+          # Surface the real HTTP status the daemon will see, BEFORE any
+          # alias/cooldown machinery can obscure it. Run 45496785906: the
+          # planner alias resolved to the live provider (config correct)
+          # yet every candidate got endpoint-blocked within ~2 minutes.
+          # Runner egress to api.z.ai is the suspect; this step proves it
+          # or clears it with a raw status code.
+          code=$(curl -s -o /tmp/probe.json -w "%{http_code}" -m 60 \
+            -X POST "https://api.z.ai/api/coding/paas/v4/chat/completions" \
+            -H "Authorization: Bearer $MEEPT_CI_PROVIDER_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"model":"glm-4.5-air","messages":[{"role":"user","content":"say OK"}],"max_tokens":8}')
+          echo "provider probe HTTP $code"
+          head -c 300 /tmp/probe.json; echo
+          if [ "$code" != "200" ]; then
+            echo "::error::provider unreachable from runner (HTTP $code)"
+            exit 1
+          fi
+
       - name: Start daemon
         env:
           MEEPT_CI_PROVIDER_KEY: ${{ secrets.MEEPT_CI_PROVIDER_KEY }}
@@ -368,6 +413,7 @@ jobs:
           ./meept-bench run \
             --suite suites/smoke.json \
             --attempts 1 \
+            --repo "$HOME/meept" \
             --scratch "$SCRATCH" \
             --auto-approved
 
@@ -378,6 +424,7 @@ jobs:
           ./meept-bench run \
             --suite suites/regression.json \
             --attempts 1 \
+            --repo "$HOME/meept" \
             --scratch "$SCRATCH" \
             --auto-approved
 
