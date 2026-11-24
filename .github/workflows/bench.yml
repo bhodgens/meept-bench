@@ -228,13 +228,29 @@ jobs:
           export MEEPT_BENCH_SOCKET="$SOCKET"
           ./meept-bench doctor
 
+      - name: Create fixture repo for smoke tasks
+        run: |
+          # Smoke tasks operate on a scratch repo, not on meept itself.
+          # Passing --repo $HOME/meept was tried first and is toxic: the
+          # daemon injects the working directory's context files (AGENTS.md,
+          # docs/) into every request, which inflates the payload until z.ai
+          # rejects it with HTTP 400 code 1214 "messages parameter is
+          # illegal" - reproduced in a Linux container with the exact CI
+          # configs: same key, same daemon, fixture repo PASSES, meept repo
+          # blocks every alias (run 45505932253).
+          mkdir -p "$HOME/fixture"
+          git -C "$HOME/fixture" init -q
+          printf "# Fixture repo\n\njust a readme\n" > "$HOME/fixture/README.md"
+          git -C "$HOME/fixture" -c user.email=ci@example -c user.name=ci add -A
+          git -C "$HOME/fixture" -c user.email=ci@example -c user.name=ci commit -qm init
+
       - name: Run smoke suite
         run: |
           export MEEPT_BENCH_SOCKET="$SOCKET"
           ./meept-bench run \
             --suite suites/smoke.json \
             --attempts 1 \
-            --repo "$HOME/meept" \
+            --repo "$HOME/fixture" \
             --scratch "$SCRATCH" \
             --auto-approved
 
@@ -431,13 +447,21 @@ jobs:
             echo "no bench-baselines branch yet — first green nightly will create it"
           fi
 
+      - name: Create fixture repo for smoke tasks (nightly)
+        run: |
+          mkdir -p "$HOME/fixture"
+          git -C "$HOME/fixture" init -q
+          printf "# Fixture repo\n\njust a readme\n" > "$HOME/fixture/README.md"
+          git -C "$HOME/fixture" -c user.email=ci@example -c user.name=ci add -A
+          git -C "$HOME/fixture" -c user.email=ci@example -c user.name=ci commit -qm init
+
       - name: Run smoke suite (nightly re-check)
         run: |
           export MEEPT_BENCH_SOCKET="$SOCKET"
           ./meept-bench run \
             --suite suites/smoke.json \
             --attempts 1 \
-            --repo "$HOME/meept" \
+            --repo "$HOME/fixture" \
             --scratch "$SCRATCH" \
             --auto-approved
 
@@ -448,7 +472,7 @@ jobs:
           ./meept-bench run \
             --suite suites/regression.json \
             --attempts 1 \
-            --repo "$HOME/meept" \
+            --repo "$HOME/fixture" \
             --scratch "$SCRATCH" \
             --auto-approved
 
