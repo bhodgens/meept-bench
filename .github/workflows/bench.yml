@@ -136,6 +136,33 @@ jobs:
           }
           EOF
 
+      - name: Write daemon config + seed agent roster
+        run: |
+          # Mirror the e2e harness posture (meept e2e/harness/daemon.go
+          # writeConfigs): projects must be ON or project.register /
+          # project.set answer "method not found" and sessions get no
+          # working dir (run 45492361091: "dispatched turn has no working
+          # directory"); the agent roster + prompts must be seeded or the
+          # dispatcher reports "agent spec not found: chat".
+          cat > "$HOME/.meept/meept.json5" <<EOF
+          {
+            "daemon": { "socket_path": "$SOCKET", "data_dir": "$DAEMON_DATA", "log_level": "INFO" },
+            "transport": { "rpc": { "enabled": true, "socket_path": "$SOCKET" } },
+            "projects": {
+              "enabled": true,
+              "base_dir": "$DAEMON_DATA/projects",
+              "auto_detect": false,
+              "fence_enabled": false
+            },
+            "security": {
+              "allowed_paths": ["/tmp/meept-bench-ci/**", "$DAEMON_DATA/**"]
+            },
+            "multiagent": { "enabled": true }
+          }
+          EOF
+          cp -r "$HOME/meept/config/agents" "$HOME/.meept/agents"
+          cp -r "$HOME/meept/config/prompts" "$HOME/.meept/prompts"
+
       - name: Start daemon
         env:
           MEEPT_CI_PROVIDER_KEY: ${{ secrets.MEEPT_CI_PROVIDER_KEY }}
@@ -253,6 +280,33 @@ jobs:
             }
           }
           EOF
+
+      - name: Write daemon config + seed agent roster
+        run: |
+          # Mirror the e2e harness posture (meept e2e/harness/daemon.go
+          # writeConfigs): projects must be ON or project.register /
+          # project.set answer "method not found" and sessions get no
+          # working dir (run 45492361091: "dispatched turn has no working
+          # directory"); the agent roster + prompts must be seeded or the
+          # dispatcher reports "agent spec not found: chat".
+          cat > "$HOME/.meept/meept.json5" <<EOF
+          {
+            "daemon": { "socket_path": "$SOCKET", "data_dir": "$DAEMON_DATA", "log_level": "INFO" },
+            "transport": { "rpc": { "enabled": true, "socket_path": "$SOCKET" } },
+            "projects": {
+              "enabled": true,
+              "base_dir": "$DAEMON_DATA/projects",
+              "auto_detect": false,
+              "fence_enabled": false
+            },
+            "security": {
+              "allowed_paths": ["/tmp/meept-bench-ci/**", "$DAEMON_DATA/**"]
+            },
+            "multiagent": { "enabled": true }
+          }
+          EOF
+          cp -r "$HOME/meept/config/agents" "$HOME/.meept/agents"
+          cp -r "$HOME/meept/config/prompts" "$HOME/.meept/prompts"
 
       - name: Start daemon
         env:
