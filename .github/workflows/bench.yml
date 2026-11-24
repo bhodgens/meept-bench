@@ -195,6 +195,17 @@ jobs:
             echo "::error::provider unreachable from runner (HTTP $code)"
             exit 1
           fi
+          # Second probe mirrors the DAEMON's exact request shape: streaming
+          # + a tools array. A 200 plain probe does NOT prove this variant
+          # works (run 45503822921: probe 200, yet the coder alias got
+          # endpoint-blocked seconds into every task).
+          scode=$(curl -s -o /tmp/probe2.txt -w "%{http_code}" -m 60 \
+            -X POST "https://api.z.ai/api/coding/paas/v4/chat/completions" \
+            -H "Authorization: Bearer $MEEPT_CI_PROVIDER_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"model":"glm-4.5-air","stream":true,"messages":[{"role":"user","content":"say OK"}],"max_tokens":8,"tools":[{"type":"function","function":{"name":"noop","description":"d","parameters":{"type":"object","properties":{}}}}]}')
+          echo "streaming+tools probe HTTP $scode"
+          head -c 400 /tmp/probe2.txt; echo
 
       - name: Start daemon
         env:
@@ -239,6 +250,8 @@ jobs:
       - name: Print daemon log on failure
         if: failure()
         run: |
+          echo "--- daemon.log: first provider errors ---"
+          grep -E 'Recorded alias failure|Endpoint cooldown armed|Provider .* failed|stream read|connection reset' "$HOME/daemon.log" 2>/dev/null | head -n 20 || true
           echo "--- daemon.log (last 100 lines) ---"
           tail -n 100 "$HOME/daemon.log" || true
 
@@ -374,6 +387,17 @@ jobs:
             echo "::error::provider unreachable from runner (HTTP $code)"
             exit 1
           fi
+          # Second probe mirrors the DAEMON's exact request shape: streaming
+          # + a tools array. A 200 plain probe does NOT prove this variant
+          # works (run 45503822921: probe 200, yet the coder alias got
+          # endpoint-blocked seconds into every task).
+          scode=$(curl -s -o /tmp/probe2.txt -w "%{http_code}" -m 60 \
+            -X POST "https://api.z.ai/api/coding/paas/v4/chat/completions" \
+            -H "Authorization: Bearer $MEEPT_CI_PROVIDER_KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"model":"glm-4.5-air","stream":true,"messages":[{"role":"user","content":"say OK"}],"max_tokens":8,"tools":[{"type":"function","function":{"name":"noop","description":"d","parameters":{"type":"object","properties":{}}}}]}')
+          echo "streaming+tools probe HTTP $scode"
+          head -c 400 /tmp/probe2.txt; echo
 
       - name: Start daemon
         env:
@@ -484,5 +508,7 @@ jobs:
       - name: Print daemon log on failure
         if: failure()
         run: |
+          echo "--- daemon.log: first provider errors ---"
+          grep -E 'Recorded alias failure|Endpoint cooldown armed|Provider .* failed|stream read|connection reset' "$HOME/daemon.log" 2>/dev/null | head -n 20 || true
           echo "--- daemon.log (last 100 lines) ---"
           tail -n 100 "$HOME/daemon.log" || true
