@@ -46,7 +46,10 @@ env:
   GO_VERSION: '1.24' # keep in sync with go.mod
   SOCKET: /tmp/meept.sock
   DAEMON_DATA: /tmp/meept-data
-  SCRATCH: ${{ github.workspace }}/.meept-bench-ci
+  # The runner's isolation guard refuses a scratch root inside repoPath
+  # (worktrees would land inside the repo tree) - run 45490899491 failed
+  # exactly there. Keep it under the runner's own temp dir instead.
+  SCRATCH: ${{ runner.temp }}/meept-bench-ci
   # Disclosure for auto-approval (GAPS.md gap 6): result rows record
   # auto_approved; this env var surfaces it in run logs too.
   AUTO_APPROVED: '1'
