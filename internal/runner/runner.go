@@ -254,7 +254,7 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	subCtx, cancelSub := context.WithTimeout(ctx, 10*time.Second)
 	sub, err := client.Subscribe(subCtx, []string{
 		"tool.execution.progress", "tool.execution.complete", "chat_message",
-		"agent.lifecycle.started", "turn.terminal",
+		"agent.lifecycle.started",
 	})
 	cancelSub()
 	if err != nil {
@@ -303,21 +303,12 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 		r.opt.Logf("warning: pre-chat status unavailable (%v); cost will be totals, not delta", beforeErr)
 	}
 
-	chatBudget := t.Timeout()
-	// Deadline budget for opted-in tasks (extra.auto_approve_plans): the
-	// approval round-trip plus post-approval plan execution happens INSIDE
-	// this turn, so the chat context gets the same +2m the ChatAsync stall
-	// window gains on approval (daemonclient.AutoApproveLivenessExtension).
-	// chatBudget is captured BEFORE chatCtx is derived so the extension is
-	// baked into the task deadline, not patched onto a live context.
-	if t.AutoApprovePlans() {
-		chatBudget += daemonclient.AutoApproveLivenessExtension
-	}
-	chatCtx, cancelChat := context.WithTimeout(ctx, chatBudget)
+	chatCtx, cancelChat := context.WithTimeout(ctx, t.Timeout())
 	defer cancelChat()
 	// The daemon resolves the session (and its project binding) by
 	// conversation ID, so chat with conv-…, not session-….
 	promptSentAt := time.Now()
+
 	// Multi-turn steering (P2.4): deliver scheduled follow-up turns while
 	// the primary agent run is in flight. Turns go over a forked
 	// connection because Chat serializes the primary connection's mutex
@@ -343,43 +334,7 @@ func (r *Runner) RunTask(ctx context.Context, m *suite.Manifest, t suite.Task, a
 	// clock for the scorecard; a failed turn is a graded outcome (checks
 	// still run), not an automatic error.
 	var chatMetrics daemonclient.ChatMetrics
-	// Bench-side plan auto-approver (opt-in via extra.auto_approve_plans,
-	// u-plan residual): the runner is the de-facto interactive client in a
-	// headless run. When the daemon parks the turn at the plan approval
-	// gate, it finds the session's task parked in awaiting_approval and
-	// calls the daemon's EXISTING task.approve RPC (forked connection: the
-	// primary connection's mutex is held by the in-flight ChatAsync).
-	// ChatAsync then extends the liveness budget to cover the approval
-	// round-trip plus post-approval plan execution. Default-off: only
-	// tasks that declare the flag get the approver; the approval gate
-	// itself is a safety contract.
-	var chatApprovalOpts []*daemonclient.ChatApprovalOptions
-	if t.AutoApprovePlans() {
-		approveSvr := client.Fork()
-		defer approveSvr.Close()
-		approvedLogf := func(ok bool, taskID, detail string) {
-			if ok {
-				r.opt.Logf("plan auto-approve: task %s approved; %s", taskID, detail)
-			} else {
-				r.opt.Logf("plan auto-approve FAILED: %s", detail)
-			}
-		}
-		chatApprovalOpts = append(chatApprovalOpts, &daemonclient.ChatApprovalOptions{
-			ApproveWhenParked: func(ctx context.Context) (string, error) {
-				// session_tasks is keyed by the CONVERSATION id (RouteToAgent ->
-				// LinkSession), not the session id - querying by session id
-				// always returned 0 rows (F-BENCH-R8). Prefer conversation id;
-				// fall back to session id for safety.
-				prefer := conversationID
-				if prefer == "" {
-					prefer = sessionID
-				}
-				return approveSvr.FindAndApproveParkedTask(ctx, sessionID, prefer, promptSentAt)
-			},
-			OnAutoApprove: approvedLogf,
-		})
-	}
-	result, chatErr := client.ChatAsync(chatCtx, t.Prompt, conversationID, &chatMetrics, chatApprovalOpts...)
+	result, chatErr := client.ChatAsync(chatCtx, t.Prompt, conversationID, &chatMetrics)
 	row.AckSeconds, row.TurnSeconds = chatMetrics.AckSeconds, chatMetrics.TurnSeconds
 	resp := asyncResultToChatResponse(result, chatErr)
 	close(done)

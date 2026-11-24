@@ -19,3 +19,4 @@ suites/lmeval-data/
 # transcript text). Regenerate locally with tools/gen-phase2-suite.py.
 /suites/campaign-phase2.json
 meept-bench-bin
+__pycache__/

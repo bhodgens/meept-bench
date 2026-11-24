@@ -39,17 +39,12 @@ type fakeDaemonScripted struct {
 	pollPause  time.Duration    // delay before bus.poll answers
 	pollErr    error            // transient error to return once (optional)
 	subscribed bool             // a bus.subscribe happened before chat.submit
-	conns      []net.Conn       // every accepted connection (cleanup closes all; serve uses per-conn readers)
+	buf        *bufio.Reader    // per-connection reader (single-conn tests)
+	conn       net.Conn         // the single served connection
 	respCh     chan struct{}    // signals "response written"
 	pollCount  int              // number of bus.poll calls served
 	closeOnce  sync.Once        // guard for cleanup
 	cleanupFn  func()           // full teardown
-
-	// Plan-approval scripting (plan_approve_test.go).
-	serveTaskApprove       bool                             // serve task.approve instead of method-not-found
-	serveTaskApproveStatus string                           // status field in the canned reply ("" = "approved")
-	taskList               []map[string]any                 // task.list_extended reply rows
-	handleFunc             func(req rpcRequest) rpcResponse // optional intercept (plan-approval harness)
 }
 
 // startAsyncDaemon spins up the scripted fake and returns its socket path.
@@ -68,16 +63,11 @@ func startAsyncDaemon(t *testing.T) *fakeDaemonScripted {
 		t.Fatal(err)
 	}
 	f := &fakeDaemonScripted{sockPath: sock, respCh: make(chan struct{}, 64)}
-	f.handleFunc = f.baseHandle
 	t.Cleanup(func() {
 		f.closeOnce.Do(func() {
 			ln.Close()
-			f.mu.Lock()
-			conns := f.conns
-			f.conns = nil
-			f.mu.Unlock()
-			for _, c := range conns {
-				_ = c.Close()
+			if f.conn != nil {
+				f.conn.Close()
 			}
 			os.RemoveAll(dir)
 		})
@@ -89,7 +79,8 @@ func startAsyncDaemon(t *testing.T) *fakeDaemonScripted {
 				return
 			}
 			f.mu.Lock()
-			f.conns = append(f.conns, conn)
+			f.conn = conn
+			f.buf = bufio.NewReader(conn)
 			f.mu.Unlock()
 			go f.serve(conn)
 		}
@@ -97,17 +88,14 @@ func startAsyncDaemon(t *testing.T) *fakeDaemonScripted {
 	return f
 }
 
-// serve handles ONE connection with its OWN frame reader. The reader must
-// be per-connection (F-BENCH-R7 fake fix): the plan-approval harness and
-// the real runner both hold a second forked connection (chat wait + forked
-// approve client), and a shared reader slot let one connection's serve
-// loop consume another connection's request frame and answer it on the
-// wrong socket -- the main client then hung forever waiting for a reply
-// that had been delivered elsewhere (intermittent ChatAsync deadlock in
-// the approval tests, deterministic under load).
 func (f *fakeDaemonScripted) serve(conn net.Conn) {
-	buf := bufio.NewReader(conn)
 	for {
+		f.mu.Lock()
+		buf := f.buf
+		f.mu.Unlock()
+		if buf == nil {
+			return
+		}
 		payload, err := readFrame(buf)
 		if err != nil {
 			return
@@ -116,7 +104,7 @@ func (f *fakeDaemonScripted) serve(conn net.Conn) {
 		if err := json.Unmarshal(payload, &req); err != nil {
 			return
 		}
-		resp := f.handleFunc(req)
+		resp := f.handle(req)
 		out, err := json.Marshal(resp)
 		if err != nil {
 			return
@@ -124,31 +112,11 @@ func (f *fakeDaemonScripted) serve(conn net.Conn) {
 		if err := writeFrame(conn, out); err != nil {
 			return
 		}
-		select {
-		case f.respCh <- struct{}{}:
-		default: // buffered channel full: signal loss is acceptable here
-		}
+		f.respCh <- struct{}{}
 	}
 }
 
-// startAsyncDaemonWithHandler spins up the scripted fake's listener with a
-// custom per-request handler (used by the plan-approval harness, which must
-// intercept task.approve / task.list_extended before the base handler).
-func startAsyncDaemonWithHandler(t *testing.T, handler func(f *fakeDaemonScripted, req rpcRequest) rpcResponse) *fakeDaemonScripted {
-	f := startAsyncDaemon(t)
-	f.handleFunc = func(req rpcRequest) rpcResponse {
-		if req.Method == "task.approve" || req.Method == "task.list_extended" {
-			return handler(f, req)
-		}
-		return f.baseHandle(req)
-	}
-	return f
-}
-
-// baseHandle is the original scripted handler body, split out so
-// startAsyncDaemonWithHandler can fall through without infinite recursion
-// through the handleFunc seam.
-func (f *fakeDaemonScripted) baseHandle(req rpcRequest) rpcResponse {
+func (f *fakeDaemonScripted) handle(req rpcRequest) rpcResponse {
 	resp := rpcResponse{JSONRPC: "2.0", ID: req.ID}
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -191,24 +159,6 @@ func (f *fakeDaemonScripted) baseHandle(req rpcRequest) rpcResponse {
 		}
 		ack := f.ack
 		b, _ := json.Marshal(ack)
-		resp.Result = b
-	case "task.approve":
-		if !f.serveTaskApprove {
-			resp.Error = &rpcError{Code: -32601, Message: "method not found: task.approve"}
-			break
-		}
-		status := f.serveTaskApproveStatus
-		if status == "" {
-			status = "approved"
-		}
-		taskID := ""
-		if f.methods[len(f.methods)-1].Params != nil {
-			taskID, _ = f.methods[len(f.methods)-1].Params["task_id"].(string)
-		}
-		b, _ := json.Marshal(map[string]any{"task_id": taskID, "status": status})
-		resp.Result = b
-	case "task.list_extended":
-		b, _ := json.Marshal(map[string]any{"tasks": f.taskList})
 		resp.Result = b
 	default:
 		resp.Error = &rpcError{Code: -32601, Message: "method not found: " + req.Method}

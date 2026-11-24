@@ -14,12 +14,12 @@ func TestTaskToolsCachedFetchParsing(t *testing.T) {
 	      "id": "fetch-cached",
 	      "prompt": "Fetch https://example.com and save it.",
 	      "tools": {"cached_fetch": true},
-	      "checkers": [{"type": "exit_zero", "command": ["test", "-f", "answer.txt"]}]
+	      "checkers": [{"type": "exit_zero", "command": ["true"]}]
 	    },
 	    {
 	      "id": "fetch-live",
 	      "prompt": "Fetch https://example.com and save it.",
-	      "checkers": [{"type": "exit_zero", "command": ["test", "-f", "answer.txt"]}]
+	      "checkers": [{"type": "exit_zero", "command": ["true"]}]
 	    }
 	  ]
 	}`

@@ -28,7 +28,7 @@ func TestTurnSchemaParsing(t *testing.T) {
     {
       "id": "control",
       "prompt": "single turn",
-      "checkers": [{"type": "exit_zero", "command": ["test", "-f", "result2.txt"]}]
+      "checkers": [{"type": "exit_zero", "command": ["true"]}]
     }
   ]
 }`
@@ -91,7 +91,7 @@ func TestTurnSchemaJSONTags(t *testing.T) {
 // TestValidateTurnErrors covers the schema validation added with Turns:
 // empty messages and negative delays must be rejected at load time.
 func TestValidateTurnErrors(t *testing.T) {
-	validCheck := []Check{{Type: "exit_zero", Command: []string{"test", "-f", "answer.txt"}}}
+	validCheck := []Check{{Type: "exit_zero", Command: []string{"true"}}}
 	cases := map[string]Task{
 		"empty message": {
 			ID: "x", Prompt: "p", Checkers: validCheck,

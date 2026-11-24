@@ -86,7 +86,7 @@ func TestRoutingExpectations(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "suite.json")
-			data := `{"suite":"s","tasks":[{"id":"a","prompt":"p","checkers":[{"type":"exit_zero","command":["test","-f","answer.txt"]}]` + tc.fields + `}]}`
+			data := `{"suite":"s","tasks":[{"id":"a","prompt":"p","checkers":[{"type":"exit_zero","command":["true"]}]` + tc.fields + `}]}`
 			if err := os.WriteFile(path, []byte(data), 0600); err != nil {
 				t.Fatal(err)
 			}
