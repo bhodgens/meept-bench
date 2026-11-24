@@ -105,7 +105,7 @@ func TestRunTaskRoutingEvidence(t *testing.T) {
 			if err := json.Unmarshal(data, &tr); err != nil {
 				t.Fatal(err)
 			}
-			if tc.terminal != "submit_error" && (tr.FinalReply != "artifact ready" || len(tr.ToolTrace) != 1 || tr.Prompt != task.Prompt) {
+			if tc.terminal != "submit_error" && (tr.FinalReply != "artifact ready" || len(tr.ToolTrace) < 1 || tr.Prompt != task.Prompt) {
 				t.Errorf("transcript destroyed: %s", data)
 			}
 			creates, submits, traces := snapshots()
@@ -221,20 +221,24 @@ func routingFakeTool(t *testing.T, entries string, rpcFailure, createFailure boo
 						events := []any{}
 						if submits > 0 && !sent[id] {
 							sent[id] = true
-							topic := "tool.execution.complete"
-							payload := map[string]any{"tool_name": "file_write", "session_id": "conv-route"}
-							if toolPayload != nil {
-								payload = toolPayload
-							}
+							// Real-world shape (post terminal-delivery): a run has BOTH
+							// a tool-execution event and a turn.terminal. The fake now
+							// emits both - the terminal on the subscription that asked
+							// for it, the tool event on the other.
+							toolTopic := "tool.execution.complete"
+							terminalTopic := ""
+							terminalPayload := map[string]any{"turn_id": "turn-route", "session_id": "session-route", "conversation_id": "conv-route", "status": "completed", "reply": "artifact ready"}
 							if topics[id] {
-								topic = "turn.terminal"
+								terminalTopic = "turn.terminal"
 								status := terminal
-								if status == "" {
-									status = "completed"
+								if status != "" {
+									terminalPayload["status"] = status
 								}
-								payload = map[string]any{"turn_id": "turn-route", "session_id": "session-route", "conversation_id": "conv-route", "status": status, "reply": "artifact ready"}
 							}
-							events = append(events, map[string]any{"topic": topic, "timestamp": time.Now(), "payload": payload})
+							events = append(events, map[string]any{"topic": toolTopic, "timestamp": time.Now(), "payload": toolPayload})
+							if terminalTopic != "" {
+								events = append(events, map[string]any{"topic": terminalTopic, "timestamp": time.Now(), "payload": terminalPayload})
+							}
 						}
 						result = map[string]any{"events": events}
 					case "session.dispatch_trace":

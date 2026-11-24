@@ -1,10 +1,14 @@
-"""One-off test harness for scripts/judge-local.py (P2.2 verification).
+"""Test harness for scripts/judge-local.py (P2.2 verification + 13-grading-cleanup).
 
 Spawns a throwaway mock llama-server on a random localhost port, then runs
 the judge script against it and asserts the contract:
   - correct endpoint (/v1/chat/completions), temperature==0 in the payload
   - stdin "<rubric>\\n---\\n<answer>" forwarded into the messages
   - stdout single line "<score> <rationale>"
+  - EMPTY judge completions and reasoning-prefixed / tagged score lines
+    fail cleanly (exit 1, stderr message, no traceback) or parse correctly
+    -- a judge never crashes on a malformed/empty model completion, and an
+    empty AGENT reply is graded (low score), never a parse error.
 Run: python3 scripts/test_judge_local.py
 """
 import json
@@ -89,6 +93,75 @@ def main():
     assert proc2.returncode == 1, proc2.returncode
     assert "HTTP 500" in proc2.stderr, proc2.stderr
     assert proc2.stdout == "", proc2.stdout
+
+    # 13-grading-cleanup: malformed/empty judge completions must fail CLEANLY
+    # (exit 1 + one stderr line, never a traceback / parse crash), and a
+    # reasoning-prefixed score must still parse (21dd263 contract).
+    def run_judge(completion, answer):
+        class Mock(Handler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers["Content-Length"]))
+                resp = json.dumps(
+                    {"choices": [{"message": {"content": completion}}]}
+                ).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(resp)))
+                self.end_headers()
+                self.wfile.write(resp)
+
+        s = HTTPServer(("127.0.0.1", 0), Mock)
+        port = s.server_address[1]
+        threading.Thread(target=s.serve_forever, daemon=True).start()
+        try:
+            return subprocess.run(
+                [sys.executable, "scripts/judge-local.py"],
+                input=f"rubric\n---\n{answer}\n",
+                capture_output=True, text=True, timeout=20,
+                env={"JUDGE_URL": f"http://127.0.0.1:{port}", "PATH": "/usr/bin:/bin"},
+            )
+        finally:
+            s.shutdown()
+
+    # (1) EMPTY judge completion -> clean exit 1, "empty judge completion".
+    r = run_judge("", "some reply")
+    assert r.returncode == 1, (r.returncode, r.stderr)
+    assert "empty judge completion" in r.stderr, r.stderr
+    assert "Traceback" not in r.stderr, r.stderr
+    assert r.stdout == "", r.stdout
+
+    # (2) WHITESPACE-ONLY judge completion -> same clean failure.
+    r = run_judge("   \n\t ", "some reply")
+    assert r.returncode == 1, (r.returncode, r.stderr)
+    assert "empty judge completion" in r.stderr, r.stderr
+    assert "Traceback" not in r.stderr, r.stderr
+
+    # (3) EMPTY agent reply (the run-1/2/4 finding): the judge must GRADE the
+    # empty answer (score parses; rubric says below 0.3 for empty), not error.
+    r = run_judge("0.0 The reply is empty, no content.", "")
+    assert r.returncode == 0, (r.returncode, r.stderr)
+    assert r.stdout.strip().startswith("0.00"), r.stdout
+    assert r.stdout.count("\n") == 1, r.stdout
+
+    # (4) Reasoning-prefixed score ("<think></think> 0.9" -- the run-5 judge
+    # seed shape) parses cleanly, including with NO space after the block.
+    r = run_judge("<think></think> 0.9 clean contextual reply", "ok")
+    assert r.returncode == 0, (r.returncode, r.stderr)
+    assert r.stdout.strip().startswith("0.90"), r.stdout
+    r = run_judge("<think></think>0.5 mid", "ok")
+    assert r.returncode == 0, (r.returncode, r.stderr)
+    assert r.stdout.strip().startswith("0.50"), r.stdout
+
+    # (5) Non-empty reasoning (real <think> body) plus score -> the greedy
+    # contract expects only the score line; a multi-line blob must fail
+    # cleanly rather than crash (collapse leaves no leading score).
+    r = run_judge("<think>let me consider... it is bad</think> 0.2 bad shape", "x")
+    assert r.returncode in (0, 1), (r.returncode, r.stderr)
+    assert "Traceback" not in r.stderr, r.stderr
+    if r.returncode == 0:
+        assert r.stdout.strip().startswith("0.20"), r.stdout
+    else:
+        assert "cannot find score" in r.stderr or "empty judge" in r.stderr, r.stderr
 
     print("judge-local contract: PASS")
     print("stdout:", out.strip())

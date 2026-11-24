@@ -1,0 +1,93 @@
+{
+  "suite": "usability",
+  "description": "Interactive-usability probe suite (2026-11-19, hardened 07-bench/01). Local-only rig, quotas disabled. Axes: multi-turn context, steering/followup, routing evidence, failure-path surfacing, plan-vs-direct delineation. Frozen prompts: do not reword to make routing pass. Every task carries a terminal_delivery acceptance checker (R6); reply-quality llm_judge rubrics grade the reply shape (empty/raw envelope/## review: chatter/job-ID prose) without ever pinning the literal expected answer (rubric lint refuses leaked answers).",
+  "model": "",
+  "tasks": [
+    {
+      "id": "u-context-two-step",
+      "prompt": "Create a file named counter.txt in the repository root containing exactly the number 3 on a single line. Use file_write with direct:true.",
+      "turns": [
+        {
+          "delay_s": 45,
+          "message": "Read counter.txt, add 4 to the number in it, and write the result back to counter.txt (file_write with direct:true). Then reply with the new number."
+        }
+      ],
+      "timeout_seconds": 420,
+      "seeds": [1],
+      "tags": ["usability", "context"],
+      "checkers": [
+        {"type": "file_contains", "files": ["counter.txt"], "pattern": "^7$"},
+        {"type": "terminal_delivery", "extra": {"task_id": "u-context-two-step", "deadline_seconds": 420}},
+        {"type": "llm_judge", "rubric": "Reply-quality rubric (usability): score the SHAPE of the reply the user sees. Score below 0.3 when the reply is empty; below 0.4 when it is a raw JSON envelope dump (starts with '{' and carries machine keys like status or conversation_id) instead of prose; below 0.4 when it is internal scaffolding chatter such as a '## review:' section narrating approval steps; below 0.5 when it is job-ID prose (internal work-item identifiers narrated to the user) rather than a user-facing answer; below 0.6 when it answers with no context at all (a bare word) instead of a contextual reply. Score 0.9+ only for a clean contextual reply a user can act on. Do not grade factual correctness here."}
+      ]
+    },
+    {
+      "id": "u-steer-midrun",
+      "prompt": "Create a file named result.txt in the repository root containing exactly the number 7 on a single line. Use file_write with direct:true so the file lands on disk immediately.",
+      "turns": [
+        {
+          "delay_s": 5,
+          "message": "Create a file named result2.txt in the repository root containing exactly the number 7 on a single line. Use file_write with direct:true so result2.txt lands on disk immediately. This replaces the earlier result.txt - after this, the only result file on disk must be result2.txt. Do not start new work beyond writing result2.txt."
+        }
+      ],
+      "timeout_seconds": 420,
+      "seeds": [1],
+      "tags": ["usability", "steering"],
+      "checkers": [
+        {"type": "file_contains", "files": ["result2.txt"], "pattern": "^7$"},
+        {"type": "terminal_delivery", "extra": {"task_id": "u-steer-midrun", "deadline_seconds": 420}},
+        {"type": "llm_judge", "rubric": "Reply-quality rubric (usability): score the SHAPE of the reply the user sees. Score below 0.3 when the reply is empty; below 0.4 when it is a raw JSON envelope dump (starts with '{' and carries machine keys like status or conversation_id) instead of prose; below 0.4 when it is internal scaffolding chatter such as a '## review:' section narrating approval steps; below 0.5 when it is job-ID prose (internal work-item identifiers narrated to the user) rather than a user-facing answer; below 0.6 when it answers with no context at all (a bare word) instead of a contextual reply. Score 0.9+ only for a clean contextual reply a user can act on. Do not grade factual correctness here."}
+      ]
+    },
+    {
+      "id": "u-route-research-write",
+      "prompt": "Fetch the page at http://127.0.0.1:9/usability-fixture.html and save its body text to a file named fetched.txt in the repository root.",
+      "timeout_seconds": 300,
+      "seeds": [1],
+      "tags": ["usability", "routing", "capability-gap"],
+      "checkers": [
+        {"type": "file_contains", "files": ["fetched.txt"], "pattern": "."},
+        {"type": "terminal_delivery", "extra": {"task_id": "u-route-research-write", "deadline_seconds": 300}},
+        {"type": "llm_judge", "rubric": "Reply-quality rubric (usability): score the SHAPE of the reply the user sees. Score below 0.3 when the reply is empty; below 0.4 when it is a raw JSON envelope dump (starts with '{' and carries machine keys like status or conversation_id) instead of prose; below 0.4 when it is internal scaffolding chatter such as a '## review:' section narrating approval steps; below 0.5 when it is job-ID prose (internal work-item identifiers narrated to the user) rather than a user-facing answer; below 0.6 when it answers with no context at all (a bare word) instead of a contextual reply. Score 0.9+ only for a clean contextual reply a user can act on. Do not grade factual correctness here."}
+      ]
+    },
+    {
+      "id": "u-fail-nonexistent-read",
+      "prompt": "Read the file definitely_missing_12345.txt in the repository root and tell me its exact contents. If you cannot read it, tell me plainly that it does not exist.",
+      "timeout_seconds": 300,
+      "seeds": [1],
+      "tags": ["usability", "failure-path"],
+      "checkers": [
+        {"type": "exit_zero", "command": ["test", "!", "-f", "definitely_missing_12345.txt"]},
+        {"type": "terminal_delivery", "extra": {"task_id": "u-fail-nonexistent-read", "deadline_seconds": 300}},
+        {"type": "llm_judge", "rubric": "Reply-quality rubric (usability): score the SHAPE of the reply the user sees. Score below 0.3 when the reply is empty; below 0.4 when it is a raw JSON envelope dump (starts with '{' and carries machine keys like status or conversation_id) instead of prose; below 0.4 when it is internal scaffolding chatter such as a '## review:' section narrating approval steps; below 0.5 when it is job-ID prose (internal work-item identifiers narrated to the user) rather than a user-facing answer; below 0.6 when it answers with no context at all (a bare word) instead of a contextual reply. Score 0.9+ only for a clean contextual reply a user can act on. Do not grade factual correctness here."}
+      ]
+    },
+    {
+      "id": "u-plan-mode-request",
+      "prompt": "Make a plan for adding a greetings module to this project: it should say hello in three languages, have tests, and a README section. Do not implement anything yet, just produce the plan for my approval.",
+      "extra": {"auto_approve_plans": true},
+      "timeout_seconds": 420,
+      "seeds": [1],
+      "tags": ["usability", "planning"],
+      "checkers": [
+        {"type": "plan_artifact", "extra": {"task_id": "u-plan-mode-request"}},
+        {"type": "terminal_delivery", "extra": {"task_id": "u-plan-mode-request", "deadline_seconds": 420}},
+        {"type": "llm_judge", "rubric": "Reply-quality rubric (usability): score the SHAPE of the reply the user sees. Score below 0.3 when the reply is empty; below 0.4 when it is a raw JSON envelope dump (starts with '{' and carries machine keys like status or conversation_id) instead of prose; below 0.4 when it is internal scaffolding chatter such as a '## review:' section narrating approval steps; below 0.5 when it is job-ID prose (internal work-item identifiers narrated to the user) rather than a user-facing answer; below 0.6 when it answers with no context at all (a bare word) instead of a contextual reply. Score 0.9+ only for a clean contextual reply a user can act on. Do not grade factual correctness here."}
+      ]
+    },
+    {
+      "id": "u-direct-explicit",
+      "prompt": "Write a file named direct.txt containing the word ok. Do this directly now, no planning needed. Use file_write with direct:true.",
+      "expect_agent": "coder",
+      "timeout_seconds": 300,
+      "seeds": [1],
+      "tags": ["usability", "direct"],
+      "checkers": [
+        {"type": "file_contains", "files": ["direct.txt"], "pattern": "^ok$"},
+        {"type": "terminal_delivery", "extra": {"task_id": "u-direct-explicit", "deadline_seconds": 300}},
+        {"type": "llm_judge", "rubric": "Reply-quality rubric (usability): score the SHAPE of the reply the user sees. Score below 0.3 when the reply is empty; below 0.4 when it is a raw JSON envelope dump (starts with '{' and carries machine keys like status or conversation_id) instead of prose; below 0.4 when it is internal scaffolding chatter such as a '## review:' section narrating approval steps; below 0.5 when it is job-ID prose (internal work-item identifiers narrated to the user) rather than a user-facing answer; below 0.6 when it answers with no context at all (a bare word) instead of a contextual reply. Score 0.9+ only for a clean contextual reply a user can act on. Do not grade factual correctness here."}
+      ]
+    }
+  ]
+}
