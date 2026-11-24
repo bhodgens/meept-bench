@@ -60,7 +60,25 @@ type Client struct {
 // step emits no intermediate events (gate 2026-09-17: 2-minute silent
 // steps are routine), so the window must tolerate one full silent stretch
 // while staying under the runner's task budget.
-const DefaultLivenessTimeout = 300 * time.Second
+// MEEPT_BENCH_LIVENESS (integer seconds) raises it for slow environments:
+// CI runners on GitHub + reasoning models (run 45512342308: repo-inventory's
+// 2-step auto-sealed plan never parked for approval, so the
+// AutoApproveLivenessExtension never applied, and ~390s of silent plan+
+// execute tripped the base window while the daemon was still healthy).
+const defaultLivenessSeconds = 300
+
+// DefaultLivenessTimeout is the effective default liveness window,
+// resolved once at init from MEEPT_BENCH_LIVENESS (integer seconds) or
+// the 300s baseline. Exposed as a var so per-client overrides and tests
+// keep reading the same value the ChatAsync default uses.
+var DefaultLivenessTimeout = func() time.Duration {
+	if v := os.Getenv("MEEPT_BENCH_LIVENESS"); v != "" {
+		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+			return time.Duration(secs) * time.Second
+		}
+	}
+	return defaultLivenessSeconds * time.Second
+}()
 
 // DefaultDialTimeout bounds how long a Unix-socket dial waits before
 // returning an error. A wedged daemon would otherwise hang the bench

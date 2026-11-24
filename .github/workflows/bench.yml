@@ -42,6 +42,12 @@ concurrency:
 env:
   # Pin the meept daemon source ref; override via repo variable MEEPT_DAEMON_REF.
   MEEPT_DAEMON_REF: ${{ vars.MEEPT_DAEMON_REF || 'main' }}
+  # Liveness window (seconds) for bench ChatAsync turns. The base 300s
+  # assumes sub-3-minute silent stretches; a 2-step auto-sealed plan on a
+  # reasoning model legitimately runs ~6 minutes silently without ever
+  # parking (run 45512342308: repo-inventory tripped the window while the
+  # daemon was still working). Raise to 900s to cover plan + all steps.
+  MEEPT_BENCH_LIVENESS: '900'
   MEEPT_REPO_URL: https://github.com/bhodgens/meept.git
   GO_VERSION: '1.24' # keep in sync with go.mod
   SOCKET: /tmp/meept.sock
