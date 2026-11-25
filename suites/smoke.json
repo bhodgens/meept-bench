@@ -1,6 +1,6 @@
 {
   "suite": "smoke",
-  "description": "End-to-end smoke suite. Verifies the harness loop: prompt → daemon chat → worktree checker → scorecard. No benchmark content, safe to commit and publish.",
+  "description": "End-to-end smoke suite. Verifies the harness loop: prompt \u2192 daemon chat \u2192 worktree checker \u2192 scorecard. No benchmark content, safe to commit and publish.",
   "model": "",
   "tasks": [
     {
@@ -8,20 +8,43 @@
       "prompt": "Create a file named answer.txt in the repository root containing exactly the number 42 on a single line. When writing, use file_write with the direct:true argument so the file is written to disk immediately.",
       "expect_agent": "coder",
       "timeout_seconds": 600,
-      "seeds": [1],
+      "seeds": [
+        1
+      ],
       "checkers": [
-        {"type": "file_contains", "files": ["answer.txt"], "pattern": "^42$"},
-        {"type": "exit_zero", "command": ["test", "-s", "answer.txt"]}
+        {
+          "type": "file_contains",
+          "files": [
+            "answer.txt"
+          ],
+          "pattern": "^42$"
+        },
+        {
+          "type": "exit_zero",
+          "command": [
+            "test",
+            "-s",
+            "answer.txt"
+          ]
+        }
       ]
     },
     {
       "id": "repo-inventory",
-      "prompt": "List the files in the current directory and write the list, one file per line, to a new file named inventory.txt. Use file_write with direct:true.",
+      "prompt": "Create a file named inventory.txt in the repository root listing the files that exist in your current directory, one per line. Use file_write with direct:true.",
       "expect_agent": "coder",
       "timeout_seconds": 600,
-      "seeds": [1],
+      "seeds": [
+        1
+      ],
       "checkers": [
-        {"type": "file_contains", "files": ["inventory.txt"], "pattern": "README"}
+        {
+          "type": "file_contains",
+          "files": [
+            "inventory.txt"
+          ],
+          "pattern": "README"
+        }
       ]
     },
     {
@@ -29,10 +52,24 @@
       "prompt": "Write a file named summary.txt in the repository root containing the text: meept is an AI agent daemon. Use file_write with direct:true.",
       "expect_agent": "coder",
       "timeout_seconds": 600,
-      "seeds": [1],
+      "seeds": [
+        1
+      ],
       "checkers": [
-        {"type": "file_contains", "files": ["summary.txt"], "pattern": "agent"},
-        {"type": "file_contains", "files": ["summary.txt"], "pattern": "daemon"}
+        {
+          "type": "file_contains",
+          "files": [
+            "summary.txt"
+          ],
+          "pattern": "agent"
+        },
+        {
+          "type": "file_contains",
+          "files": [
+            "summary.txt"
+          ],
+          "pattern": "daemon"
+        }
       ]
     }
   ]
