@@ -3,6 +3,7 @@ package daemonclient
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -292,6 +293,72 @@ func TestChatAsyncAutoApproveDisabledByDefault(t *testing.T) {
 	h.mu.Unlock()
 	if calls != 0 {
 		t.Errorf("task.approve served %d times without opt-in; the approval gate must stay default-on", calls)
+	}
+}
+
+// Relay fallback: when the parked turn's task reaches a terminal state
+// WITHOUT a matching turn.terminal re-broadcast (daemon issue
+// bhodgens/meept#172), ChatAsync synthesizes the outcome from the polled
+// task state instead of stalling to the liveness window.
+func TestChatAsyncRelayFallbackSynthesizesTerminal(t *testing.T) {
+	h := startApprovalHarness(t)
+	// Task already resolved (never awaited approval): approve driver
+	// returns without error, no completed terminal is armed for this
+	// turn, so ONLY the fallback can end the wait.
+	h.mu.Lock()
+	h.taskState = "completed"
+	h.mu.Unlock()
+	opts := []*ChatApprovalOptions{{
+		ApproveWhenParked: func(ctx context.Context) (string, error) {
+			ac := New(h.sockPath)
+			defer ac.Close()
+			prev := ApprovePollInterval
+			ApprovePollInterval = 10 * time.Millisecond
+			t.Cleanup(func() { ApprovePollInterval = prev })
+			return ac.FindAndApproveParkedTask(ctx, "session-plan", "session-plan", time.Now().Add(-time.Minute))
+		},
+	}}
+	c := New(h.sockPath)
+	c.LivenessTimeout = 30 * time.Second // the fallback must win long before this
+	res, err := c.ChatAsync(approvalCtx(t), "plan something", "session-plan", nil, opts...)
+	if err != nil {
+		t.Fatalf("relay fallback: %v", err)
+	}
+	if res.Status != "completed" {
+		t.Fatalf("status = %q, want completed", res.Status)
+	}
+	if !strings.Contains(res.Reply, "relay fallback") {
+		t.Fatalf("reply = %q, want relay-fallback synthesized text", res.Reply)
+	}
+	if !strings.Contains(res.Reply, "task-plan-1") {
+		t.Fatalf("reply = %q, want the task id embedded", res.Reply)
+	}
+}
+
+// A failed task state synthesizes a failed turn.
+func TestChatAsyncRelayFallbackFailedState(t *testing.T) {
+	h := startApprovalHarness(t)
+	h.mu.Lock()
+	h.taskState = "failed"
+	h.mu.Unlock()
+	opts := []*ChatApprovalOptions{{
+		ApproveWhenParked: func(ctx context.Context) (string, error) {
+			ac := New(h.sockPath)
+			defer ac.Close()
+			prev := ApprovePollInterval
+			ApprovePollInterval = 10 * time.Millisecond
+			t.Cleanup(func() { ApprovePollInterval = prev })
+			return ac.FindAndApproveParkedTask(ctx, "session-plan", "session-plan", time.Now().Add(-time.Minute))
+		},
+	}}
+	c := New(h.sockPath)
+	c.LivenessTimeout = 30 * time.Second
+	res, err := c.ChatAsync(approvalCtx(t), "plan something", "session-plan", nil, opts...)
+	if err != nil {
+		t.Fatalf("relay fallback failed: %v", err)
+	}
+	if res.Status != "failed" || !strings.Contains(res.Error, "state failed") {
+		t.Fatalf("res = %+v, want failed status + state error", res)
 	}
 }
 

@@ -143,6 +143,19 @@ func (c *Client) liveness() time.Duration {
 	return DefaultLivenessTimeout
 }
 
+// relayFallbackPollInterval bounds how often the parked-turn task-state
+// fallback re-reads task.list_extended.
+const relayFallbackPollInterval = 2 * time.Second
+
+// isTerminalTaskState reports a task state that can no longer change.
+func isTerminalTaskState(state string) bool {
+	switch state {
+	case "completed", "failed", "cancelled", "rejected":
+		return true
+	}
+	return false
+}
+
 // Path returns the configured socket path.
 func (c *Client) Path() string { return c.path }
 
@@ -941,6 +954,7 @@ func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metri
 		approval = opts[0]
 	}
 	autoApproved := false
+	nextTaskPoll := time.Now().Add(relayFallbackPollInterval)
 	// Local stall budget (c.liveness() snapshot): extended locally when the
 	// auto-approver fires, so a shared Client (forked by other task
 	// subsystems) never sees its window mutated mid-task.
@@ -1027,6 +1041,34 @@ func (c *Client) ChatAsync(ctx context.Context, message, sessionID string, metri
 					Error:      p.Error,
 					DurationMS: p.DurationMS,
 				}, nil
+			}
+			// Relay fallback (issue bhodgens/meept#172): a parked
+			// ack whose task terminalized via a path that skips the
+			// task_completed_relay (e.g. "Task already terminal;
+			// skipping finalization") never re-broadcasts a terminal
+			// with this turn's id. The bench-side task state is
+			// authoritative, so after any park, poll it and synthesize
+			// the turn outcome instead of stalling until the window
+			// (bench runs 45520835825 / 45525887475: repo-inventory
+			// hung the full 600s task budget on exactly this hole).
+			if autoApproved && time.Now().After(nextTaskPoll) {
+				nextTaskPoll = time.Now().Add(relayFallbackPollInterval)
+				if tid, state, found, perr := c.findTaskBySessionSince(sessionID, conversation, start); perr == nil && found && isTerminalTaskState(state) {
+					if metrics != nil {
+						metrics.TurnSeconds = time.Since(start).Seconds() - metrics.AckSeconds
+					}
+					status := "completed"
+					errMsg := ""
+					if state != "completed" {
+						status = "failed"
+						errMsg = "task ended in state " + state
+					}
+					return &TurnResult{
+						Reply:  fmt.Sprintf("task %s %s (relay fallback: no turn.terminal match; task state polled)", tid, state),
+						Status: status,
+						Error:  errMsg,
+					}, nil
+				}
 			}
 			if time.Since(waitStart) >= liveness {
 				return nil, fmt.Errorf("chat turn %s: %w (liveness timeout %s)", ack.TurnID, ErrTurnStalled, liveness)
