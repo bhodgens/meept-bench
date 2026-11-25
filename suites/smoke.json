@@ -32,7 +32,6 @@
     {
       "id": "repo-inventory",
       "prompt": "List the files in the current directory and write the list, one file per line, to a new file named inventory.txt. Use file_write with direct:true.",
-      "expect_agent": "orchestrator",
       "timeout_seconds": 600,
       "seeds": [
         1
